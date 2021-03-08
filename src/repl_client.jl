@@ -9,15 +9,34 @@ function valid_input_checker(prompt_state)
     return !Meta.isexpr(ast, :incomplete)
 end
 
+struct RemoteCompletionProvider <: REPL.LineEdit.CompletionProvider
+    server
+end
+
+function REPL.complete_line(c::RemoteCompletionProvider, state::REPL.LineEdit.PromptState)
+    # See also REPL.jl
+    # complete_line(c::REPLCompletionProvider, s::PromptState)
+    partial = REPL.beforecursor(state.input_buffer)
+    full = REPL.LineEdit.input_string(state)
+    serialize(c.server, (:completion_request, (partial, full)))
+    command, value = deserialize(c.server)
+    if command != :success
+        @warn "Completion failure" command
+        return ([], "", false)
+    end
+    return value
+end
+
 function run_remote_repl_command(server, cmdstr)
     ast = Base.parse_input_line(cmdstr, depwarn=false)
-    local command, value
+    command=nothing
+    value=nothing
     try
         serialize(server, (:evaluate, ast))
         flush(server)
         response = deserialize(server)
-        command,value = response isa Tuple && length(response) == 2 ?
-                     response : (nothing,nothing)
+        command, value = response isa Tuple && length(response) == 2 ?
+                         response : (nothing,nothing)
     catch exc
         if exc isa Base.IOError
             command = :error
@@ -31,7 +50,7 @@ function run_remote_repl_command(server, cmdstr)
     elseif command == :error
         println(value)
     else
-        @error "Unexpected response from server" response
+        @error "Unexpected response from server" command
     end
 end
 
@@ -46,7 +65,9 @@ function connect_remote_repl(host=Sockets.localhost, port=27754)
                        prompt_color = :red,
                        start_key    = '>',
                        sticky_mode  = true,
-                       mode_name    = "remote_repl")
+                       mode_name    = "remote_repl",
+                       completion_provider = RemoteCompletionProvider(server)
+                       )
                        # startup_text = false)
     nothing
 end

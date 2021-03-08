@@ -1,5 +1,6 @@
 using Sockets
 using Serialization
+using REPL
 
 function start_repl_server(host=Sockets.localhost, port=27754)
     try
@@ -32,6 +33,11 @@ function start_repl_server(server::Base.IOServer)
                                     request : (nothing,nothing)
                     if command == :evaluate
                         result = Main.eval(value)
+                    elseif command == :completion_request
+                        partial, full = value
+                        ret, range, should_complete = REPL.completions(full, lastindex(partial))
+                        result = (unique!(map(REPL.completion_text, ret)),
+                                  partial[range], should_complete)
                     elseif command == :exit
                         @info "Client closed the connection"
                         break
