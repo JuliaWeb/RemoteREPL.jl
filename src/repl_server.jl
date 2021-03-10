@@ -11,6 +11,19 @@ function start_repl_server(host=Sockets.localhost, port=27754)
     end
 end
 
+# Format result of arbitrary type as a string for transmission.
+# Stringifying everything may seem strange, but is beneficial because
+#   * It allows us to show the user-defined types which exist only on the
+#     remote server
+#   * It allows us to limit the amount of data transmitted (eg, large arrays
+#     are truncated when the :limit IOContext property is set)
+function format_result(f, display_properties)
+    io = IOBuffer()
+    ctx = IOContext(io, display_properties...)
+    f(ctx)
+    String(take!(io))
+end
+
 function start_repl_server(server::Base.IOServer)
     open_sockets = Set()
     atexit() do
@@ -22,34 +35,47 @@ function start_repl_server(server::Base.IOServer)
     @sync while isopen(server)
         socket = accept(server)
         push!(open_sockets, socket)
-        host,port = getpeername(socket)
-        @info "REPL client opened a connection" host port=Int(port)
+        peer = getpeername(socket)
+        @info "REPL client opened a connection" peer
         @async try
+            display_properties = Dict()
             while isopen(socket)
                 request = deserialize(socket)
-                response = try
+                response = nothing
+                try
                     @debug "Client command" request
-                    command,value = request isa Tuple && length(request) == 2 ?
+                    messageid,value = request isa Tuple && length(request) == 2 ?
                                     request : (nothing,nothing)
-                    if command == :evaluate
+                    if messageid == :eval
                         result = Main.eval(value)
-                    elseif command == :completion_request
+                        resultval = isnothing(result) ? nothing :
+                            format_result(display_properties) do io
+                                show(io, MIME"text/plain"(), result)
+                            end
+                        response = (:eval_result, resultval)
+                    elseif messageid == :display_properties
+                        @debug "Got client display properties" display_properties
+                        display_properties = value::Dict
+                    elseif messageid == :repl_completion
+                        # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
                         partial, full = value
                         ret, range, should_complete = REPL.completions(full, lastindex(partial))
                         result = (unique!(map(REPL.completion_text, ret)),
                                   partial[range], should_complete)
-                    elseif command == :exit
-                        @info "Client closed the connection"
+                        response = (:completion_result, result)
+                    elseif messageid == :exit
+                        @info "Client closed the connection" peer
                         break
                     end
-                    (:success, result)
                 catch _
-                    io = IOBuffer()
-                    ctx = IOContext(io, :color=>true)
-                    Base.display_error(ctx, Base.catch_stack())
-                    (:error, String(take!(io)))
+                    resultval = format_result(display_properties) do io
+                        Base.display_error(io, Base.catch_stack())
+                    end
+                    response = (:error, resultval)
                 end
-                serialize(socket, response)
+                if !isnothing(response)
+                    serialize(socket, response)
+                end
             end
         catch exc
             if !(exc isa EOFError)

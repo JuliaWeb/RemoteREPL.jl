@@ -10,63 +10,74 @@ function valid_input_checker(prompt_state)
 end
 
 struct RemoteCompletionProvider <: REPL.LineEdit.CompletionProvider
-    server
+    socket
 end
 
 function REPL.complete_line(c::RemoteCompletionProvider, state::REPL.LineEdit.PromptState)
-    # See also REPL.jl
-    # complete_line(c::REPLCompletionProvider, s::PromptState)
+    # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
-    serialize(c.server, (:completion_request, (partial, full)))
-    command, value = deserialize(c.server)
-    if command != :success
-        @warn "Completion failure" command
+    serialize(c.socket, (:repl_completion, (partial, full)))
+    messageid, value = deserialize(c.socket)
+    if messageid != :completion_result
+        @warn "Completion failure" messageid
         return ([], "", false)
     end
     return value
 end
 
-function run_remote_repl_command(server, cmdstr)
+function run_remote_repl_command(socket, out_stream, cmdstr)
     ast = Base.parse_input_line(cmdstr, depwarn=false)
-    command=nothing
+    messageid=nothing
     value=nothing
     try
-        serialize(server, (:evaluate, ast))
-        flush(server)
-        response = deserialize(server)
-        command, value = response isa Tuple && length(response) == 2 ?
-                         response : (nothing,nothing)
+        # See REPL.jl: display(d::REPLDisplay, mime::MIME"text/plain", x)
+        display_props = Dict(
+            :displaysize=>displaysize(out_stream),
+            :color=>get(out_stream, :color, false),
+            :limit=>true,
+            :module=>Main,
+        )
+        serialize(socket, (:display_properties, display_props))
+        serialize(socket, (:eval, ast))
+        flush(socket)
+        response = deserialize(socket)
+        messageid, value = response isa Tuple && length(response) == 2 ?
+                           response : (nothing,nothing)
     catch exc
         if exc isa Base.IOError
-            command = :error
+            messageid = :error
             value = "IOError - Remote Julia exited or is inaccessible"
         else
             rethrow()
         end
     end
-    if command == :success
-        display(value)
-    elseif command == :error
-        println(value)
+    if messageid == :eval_result || messageid == :error
+        if !isnothing(value) && !REPL.ends_with_semicolon(cmdstr)
+            println(out_stream, value)
+        end
     else
-        @error "Unexpected response from server" command
+        @error "Unexpected response from server" messageid
     end
 end
 
 function connect_remote_repl(host=Sockets.localhost, port=27754)
-    server = connect(host, port)
-    # config = Dict(:displaysize=>displaysize())
-    # serialize(server, (:config, config))
-    ReplMaker.initrepl(c->run_remote_repl_command(server, c),
+    socket = connect(host, port)
+    atexit() do
+        serialize(socket, (:exit,nothing))
+        flush(socket)
+        close(socket)
+    end
+    out_stream = stdout
+    ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,
                        valid_input_checker = valid_input_checker,
                        prompt_text  = "remote> ",
-                       prompt_color = :red,
+                       prompt_color = :magenta,
                        start_key    = '>',
                        sticky_mode  = true,
                        mode_name    = "remote_repl",
-                       completion_provider = RemoteCompletionProvider(server)
+                       completion_provider = RemoteCompletionProvider(socket)
                        )
                        # startup_text = false)
     nothing
