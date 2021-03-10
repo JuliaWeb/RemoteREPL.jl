@@ -6,9 +6,9 @@
 process and run commands interactively.
 
 In order for this to work, the remote julia process should start a REPL server
-with `start_repl_server()`.
+with `serve_repl()`.
 
-The local instance will then be able to connect with `connect_remote_repl()`.
+The local instance will then be able to connect with `connect_repl()`.
 
 Host (name / ip) and port numbers can be supplied if desired.
 

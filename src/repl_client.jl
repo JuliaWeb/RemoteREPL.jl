@@ -61,7 +61,13 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
     end
 end
 
-function connect_remote_repl(host=Sockets.localhost, port=27754)
+"""
+    connect_repl([host=localhost,] port::Integer=27754)
+
+Connect client REPL to a remote `host` on `port`. This is then accessible as a
+remote sub-repl of the current Julia session.
+"""
+function connect_repl(host=Sockets.localhost, port::Integer=27754)
     socket = connect(host, port)
     atexit() do
         serialize(socket, (:exit,nothing))
@@ -82,4 +88,6 @@ function connect_remote_repl(host=Sockets.localhost, port=27754)
                        # startup_text = false)
     nothing
 end
+
+connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
 
