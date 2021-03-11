@@ -66,8 +66,8 @@ Start a REPL server listening on interface `address` and `port`. By default,
 incoming connections are limited to localhost only.
 """
 function serve_repl(address=Sockets.localhost, port::Integer=27754)
+    server = listen(address, port)
     try
-        server = listen(address, port)
         serve_repl(server)
     finally
         close(server)
