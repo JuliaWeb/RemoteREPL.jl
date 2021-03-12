@@ -3,7 +3,7 @@ using Test
 using Sockets
 
 # Use non-default port to avoid interfering with interactive testing.
-server_proc = run(`$(Base.julia_cmd()) -e 'using RemoteREPL; serve_repl(27755)'`, wait=false)
+server_proc = run(`$(Base.julia_cmd()) -e 'using RemoteREPL; serve_repl(27764)'`, wait=false)
 
 try
 
@@ -11,7 +11,7 @@ try
     local socket = nothing
     for i=1:10
         try
-            socket = connect(Sockets.localhost, 27755)
+            socket = connect(Sockets.localhost, 27764)
             break
         catch
             # Server not yet started - continue waiting

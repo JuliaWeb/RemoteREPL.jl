@@ -63,7 +63,13 @@ end
     serve_repl([address=Sockets.localhost,] port=27754)
 
 Start a REPL server listening on interface `address` and `port`. By default,
-incoming connections are limited to localhost only.
+incoming connections are limited to localhost only for security and you
+shouldn't change this unless you're on a secure network.
+
+If you're on a secure network and want to incoming connections on all network
+interfaces you can use address=`ip"0.0.0.0"`. This is not recommended however —
+it's better to instead run an ssh server from the machine which is executing
+`serve_repl()` and use `connect_repl()` in the default ssh tunnel mode.
 """
 function serve_repl(address=Sockets.localhost, port::Integer=27754)
     server = listen(address, port)

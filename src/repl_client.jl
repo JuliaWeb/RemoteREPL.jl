@@ -3,6 +3,51 @@ using REPL
 using Serialization
 using Sockets
 
+using OpenSSH_jll
+
+function connect_via_tunnel(host, port; local_tunnel_port, retry_timeout)
+    local_tunnel_port = 27755
+    ssh_proc = OpenSSH_jll.ssh() do ssh_exe
+        # Tunnel binds locally to 127.0.0.1:$local_tunnel_port
+        # The other end jumps through $host using the provided identity,
+        # and forwards the data to $port on *itself* (this is the localhost:$port
+        # part - "localhost" being resolved relative to $host)
+        ssh_cmd = `$ssh_exe -o ExitOnForwardFailure=yes -N -L 127.0.0.1:$local_tunnel_port:localhost:$port $host`
+        @debug """Connecting to remote host $host:$port on
+                 its internal loopback interface""" ssh_cmd
+        ssh_errbuf = IOBuffer()
+        ssh_proc = run(pipeline(ssh_cmd, stdout=ssh_errbuf, stderr=ssh_errbuf),
+                       wait=false)
+        atexit() do
+            kill(ssh_proc)
+        end
+        @async begin
+            # Attempt to log any ssh connection errors to the user
+            wait(ssh_proc)
+            ssh_errors = String(take!(ssh_errbuf))
+            if !isempty(ssh_errors) || !success(ssh_proc)
+                @warn "SSH tunnel output" ssh_errors=Text(ssh_errors)
+            end
+        end
+        ssh_proc
+    end
+    # Retry loop to give the SSH server time to come up.
+    for i=1:retry_timeout
+        try
+            return connect(Sockets.localhost, local_tunnel_port)
+        catch exc
+            if (exc isa Base.IOError) && process_running(ssh_proc) && i < retry_timeout
+                sleep(1)
+            else
+                kill(ssh_proc)
+                wait(ssh_proc)
+                @error "Exceeded maximum socket connection attempts"
+                rethrow()
+            end
+        end
+    end
+end
+
 function valid_input_checker(prompt_state)
     ast = Base.parse_input_line(String(take!(copy(REPL.LineEdit.buffer(prompt_state)))),
                                 depwarn=false)
@@ -62,18 +107,36 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
 end
 
 """
-    connect_repl([host=localhost,] port::Integer=27754)
+    connect_repl([host=localhost,] port::Integer=27754;
+                 use_ssh_tunnel = (host != localhost))
 
 Connect client REPL to a remote `host` on `port`. This is then accessible as a
 remote sub-repl of the current Julia session.
+
+For security, `connect_repl()` uses an ssh tunnel for remote hosts. This means
+that `host` needs to be running an ssh server and you need ssh credentials set
+up for use on that host. For secure networks this can be disabled by setting
+`use_ssh_tunnel=false`.
 """
-function connect_repl(host=Sockets.localhost, port::Integer=27754)
-    socket = connect(host, port)
+function connect_repl(host=Sockets.localhost, port::Integer=27754;
+                      use_ssh_tunnel::Bool = host!=Sockets.localhost)
+    socket = use_ssh_tunnel ?
+             connect_via_tunnel(host, port; local_tunnel_port=27755, retry_timeout=5) :
+             connect(host, port)
+
+    # TODO: Do an initial handshake to exchange protocol header
+    # - magic bytes
+    # - protocol version
+    # - julia version
+
     atexit() do
-        serialize(socket, (:exit,nothing))
-        flush(socket)
-        close(socket)
+        if isopen(socket)
+            serialize(socket, (:exit,nothing))
+            flush(socket)
+            close(socket)
+        end
     end
+
     out_stream = stdout
     ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,

@@ -12,12 +12,16 @@ The local instance will then be able to connect with `connect_repl()`.
 
 Host (name / ip) and port numbers can be supplied if desired.
 
-## (In)security NOTE!
+## Security and SSH
 
-No security is provided by this package, so for now it should only be used on
-secure local networks, eg inside a docker network, behind a router, on
-localhost, etc.
+When connecting to a remote host with `connect_repl(host)`, this package
+uses an SSH tunnel by default when `host != Sockets.localhost`. This provides
+excellent security but it means an SSH server also needs to be running on the
+machine where `serve_repl()` is called and you need SSH credentials set up for
+that machine (such that `ssh your_host` works for the appropriate `your_host`).
 
-However, you could probably use an SSH tunnel and some firewall rules to make
-this usable on an open network. Ideally this package would integrate with
-OpenSSH or some such to make the connection secure.
+If both machines are on a secure network, you could consider skipping this step
+and directly using the RemoteREPL protocol. Note that in this configuration
+there is *no security whatsoever* and that abitrary remote code execution is
+the main feature provided by this package!
+
