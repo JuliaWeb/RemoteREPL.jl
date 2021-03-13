@@ -2,6 +2,12 @@ using Sockets
 using Serialization
 using REPL
 
+function send_header(io, ser_version=Serialization.ser_version)
+    write(io, protocol_magic, protocol_version)
+    write(io, UInt32(ser_version))
+    flush(io)
+end
+
 # Format result of arbitrary type as a string for transmission.
 # Stringifying everything may seem strange, but is beneficial because
 #   * It allows us to show the user-defined types which exist only on the
@@ -17,6 +23,7 @@ end
 
 # Serve a remote REPL session to a single client over `socket`.
 function serve_repl_session(socket)
+    send_header(socket)
     display_properties = Dict()
     while isopen(socket)
         request = deserialize(socket)

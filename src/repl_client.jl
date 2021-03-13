@@ -5,6 +5,25 @@ using Sockets
 
 using OpenSSH_jll
 
+function verify_header(io, ser_version=Serialization.ser_version)
+    magic = String(read(io, length(protocol_magic)))
+    if magic != protocol_magic
+        error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(protocol_magic))")
+    end
+    version = read(io, typeof(protocol_version))
+    if version != protocol_version
+        error("RemoteREPL protocol version number mismatch: $version != $protocol_version")
+    end
+    # Version 1: We rely on the standard Serialization library for simplicity;
+    # that's backward but not forward compatible depending on
+    # Serialization.ser_version, so we check for an exact match
+    remote_ser_version = read(io, UInt32)
+    if remote_ser_version != ser_version
+        error("RemoteREPL Julia Serialization format version mismatch: $remote_ser_version != $ser_version")
+    end
+    return true
+end
+
 # Find a free port on `network_interface`
 function find_free_port(network_interface)
     # listen on port 0 => kernel chooses a free port. See, for example,
@@ -120,6 +139,29 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
     end
 end
 
+function setup_connection(host, port, use_ssh_tunnel)
+    socket = use_ssh_tunnel ?
+             connect_via_tunnel(host, port; retry_timeout=5) :
+             connect(host, port)
+
+    try
+        verify_header(socket)
+    catch exc
+        close(socket)
+        rethrow()
+    end
+
+    atexit() do
+        if isopen(socket)
+            serialize(socket, (:exit,nothing))
+            flush(socket)
+            close(socket)
+        end
+    end
+
+    return socket
+end
+
 """
     connect_repl([host=localhost,] port::Integer=27754;
                  use_ssh_tunnel = (host != localhost))
@@ -134,23 +176,7 @@ up for use on that host. For secure networks this can be disabled by setting
 """
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       use_ssh_tunnel::Bool = host!=Sockets.localhost)
-    socket = use_ssh_tunnel ?
-             connect_via_tunnel(host, port; retry_timeout=5) :
-             connect(host, port)
-
-    # TODO: Do an initial handshake to exchange protocol header
-    # - magic bytes
-    # - protocol version
-    # - julia version
-
-    atexit() do
-        if isopen(socket)
-            serialize(socket, (:exit,nothing))
-            flush(socket)
-            close(socket)
-        end
-    end
-
+    socket = setup_connection(host, port, use_ssh_tunnel)
     out_stream = stdout
     ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,

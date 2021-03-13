@@ -2,6 +2,33 @@ using RemoteREPL
 using Test
 using Sockets
 
+@testset "Protocol header handshake" begin
+    # Happy case
+    io = IOBuffer()
+    RemoteREPL.send_header(io)
+    seek(io, 0)
+    @test RemoteREPL.verify_header(io)
+
+    # Broken magic number
+    io = IOBuffer()
+    write(io, "BrokenMagic", RemoteREPL.protocol_version)
+    seek(io, 0)
+    @test_throws ErrorException RemoteREPL.verify_header(io)
+    # Version mismatch
+    io = IOBuffer()
+    write(io, RemoteREPL.protocol_version, typemax(UInt32))
+    seek(io, 0)
+    @test_throws ErrorException RemoteREPL.verify_header(io)
+
+    # ser_version=10 in julia 1.5
+    for (local_ver, remote_ver) in [(10,13), (13,10)]
+        io = IOBuffer()
+        seek(io, 0)
+        RemoteREPL.send_header(io, remote_ver)
+        @test_throws ErrorException RemoteREPL.verify_header(io, local_ver)
+    end
+end
+
 # Use non-default port to avoid clashes with concurrent interactive use or testing.
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
 server_proc = run(`$(Base.julia_cmd()) -e "using RemoteREPL; serve_repl($test_port)"`, wait=false)
@@ -12,7 +39,7 @@ try
     local socket = nothing
     for i=1:10
         try
-            socket = connect(Sockets.localhost, test_port)
+            socket = RemoteREPL.setup_connection(Sockets.localhost, test_port, false)
             break
         catch
             # Server not yet started - continue waiting
