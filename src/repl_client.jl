@@ -5,16 +5,30 @@ using Sockets
 
 using OpenSSH_jll
 
-function connect_via_tunnel(host, port; local_tunnel_port, retry_timeout)
-    local_tunnel_port = 27755
+# Find a free port on `network_interface`
+function find_free_port(network_interface)
+    # listen on port 0 => kernel chooses a free port. See, for example,
+    # https://stackoverflow.com/questions/44875422/how-to-pick-a-free-port-for-a-subprocess
+    server = listen(network_interface, 0)
+    _, free_port = getsockname(server)
+    close(server)
+    # The kernel can reuse free_port here after $some_time_delay, but apprently
+    # this is large enough for Selenium to have used this technique for ten
+    # years...
+    return free_port
+end
+
+function connect_via_tunnel(host, port; retry_timeout)
+    tunnel_interface = Sockets.localhost
+    tunnel_port = find_free_port(tunnel_interface)
     ssh_proc = OpenSSH_jll.ssh() do ssh_exe
-        # Tunnel binds locally to 127.0.0.1:$local_tunnel_port
+        # Tunnel binds locally to $tunnel_interface:$tunnel_port
         # The other end jumps through $host using the provided identity,
         # and forwards the data to $port on *itself* (this is the localhost:$port
         # part - "localhost" being resolved relative to $host)
-        ssh_cmd = `$ssh_exe -o ExitOnForwardFailure=yes -N -L 127.0.0.1:$local_tunnel_port:localhost:$port $host`
-        @debug """Connecting to remote host $host:$port on
-                 its internal loopback interface""" ssh_cmd
+        ssh_cmd = `$ssh_exe -o ExitOnForwardFailure=yes -o ServerAliveInterval=60
+                            -N -L $tunnel_interface:$tunnel_port:localhost:$port $host`
+        @debug "Connecting to remote host $host via ssh tunnel to $port" ssh_cmd
         ssh_errbuf = IOBuffer()
         ssh_proc = run(pipeline(ssh_cmd, stdout=ssh_errbuf, stderr=ssh_errbuf),
                        wait=false)
@@ -34,7 +48,7 @@ function connect_via_tunnel(host, port; local_tunnel_port, retry_timeout)
     # Retry loop to give the SSH server time to come up.
     for i=1:retry_timeout
         try
-            return connect(Sockets.localhost, local_tunnel_port)
+            return connect(tunnel_interface, tunnel_port)
         catch exc
             if (exc isa Base.IOError) && process_running(ssh_proc) && i < retry_timeout
                 sleep(1)
@@ -121,7 +135,7 @@ up for use on that host. For secure networks this can be disabled by setting
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       use_ssh_tunnel::Bool = host!=Sockets.localhost)
     socket = use_ssh_tunnel ?
-             connect_via_tunnel(host, port; local_tunnel_port=27755, retry_timeout=5) :
+             connect_via_tunnel(host, port; retry_timeout=5) :
              connect(host, port)
 
     # TODO: Do an initial handshake to exchange protocol header

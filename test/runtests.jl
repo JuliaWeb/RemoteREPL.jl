@@ -2,8 +2,9 @@ using RemoteREPL
 using Test
 using Sockets
 
-# Use non-default port to avoid interfering with interactive testing.
-server_proc = run(`$(Base.julia_cmd()) -e 'using RemoteREPL; serve_repl(27764)'`, wait=false)
+# Use non-default port to avoid clashes with concurrent interactive use or testing.
+test_port = RemoteREPL.find_free_port(Sockets.localhost)
+server_proc = run(`$(Base.julia_cmd()) -e "using RemoteREPL; serve_repl($test_port)"`, wait=false)
 
 try
 
@@ -11,7 +12,7 @@ try
     local socket = nothing
     for i=1:10
         try
-            socket = connect(Sockets.localhost, 27764)
+            socket = connect(Sockets.localhost, test_port)
             break
         catch
             # Server not yet started - continue waiting
