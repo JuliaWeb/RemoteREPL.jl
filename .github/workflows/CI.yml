@@ -39,7 +39,7 @@ jobs:
           ssh-add ~/.ssh/id_rsa_remoterepl_test
       - name: Verify sshd config
         run: |
-          cat /etc/ssh/sshd_config
+          sudo cat /etc/ssh/sshd_config
       - name: Verify ssh config
         run: |
           ls -l ~/.ssh
@@ -48,7 +48,11 @@ jobs:
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
-          ssh -vvv 127.111.111.111 true
+          ssh -vvv 127.111.111.111 true || true
+      - name: sshd logs
+        run: |
+          journalctl -t sshd
+          false
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
