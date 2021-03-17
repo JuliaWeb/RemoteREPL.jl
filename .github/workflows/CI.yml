@@ -37,12 +37,14 @@ jobs:
           chmod 700 ~/.ssh
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-add ~/.ssh/id_rsa_remoterepl_test
+      - name: Verify ssh config
+        run: |
+          ls -l ~/.ssh
+          cat ~/.ssh/authorized_keys
       - name: Test ssh
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
-          ls -l ~/.ssh
-          cat ~/.ssh/authorized_keys
           ssh -vvv 127.111.111.111 true
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
