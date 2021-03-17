@@ -33,11 +33,13 @@ jobs:
           ssh-keygen -N '' -f ~/.ssh/id_rsa_remoterepl_test
           cat ~/.ssh/id_rsa_remoterepl_test.pub >> ~/.ssh/authorized_keys
           echo -e "\nHost 127.111.111.111\n  IdentityFile ~/.ssh/id_rsa_remoterepl_test" >> ~/.ssh/config
-          chmod 600 ~/.ssh/*
-          chmod 700 ~/.ssh
-          # sudo chmod -c 0755 ~/
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-add ~/.ssh/id_rsa_remoterepl_test
+      - name: The gauntlet of correct ssh permissions
+        run: |
+          chmod 600 ~/.ssh/*
+          chmod 700 ~/.ssh
+          sudo chmod -c 0755 ~/
       - name: Verify sshd config
         run: |
           sudo cat /etc/ssh/sshd_config
@@ -50,11 +52,10 @@ jobs:
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
-          ssh -vvv 127.111.111.111 true || true
+          ssh -vvv 127.111.111.111 true
       - name: sshd logs
         run: |
           journalctl -t sshd
-          false
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
