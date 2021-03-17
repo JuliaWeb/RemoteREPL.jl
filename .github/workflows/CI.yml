@@ -30,6 +30,7 @@ jobs:
           ssh-keygen -P '' -f ~/.ssh/id_rsa_remoterepl_test
           cat ~/.ssh/id_rsa_remoterepl_test.pub >> ~/.ssh/authorized_keys
           echo -e "\nHost 127.111.111.111\n  IdentityFile ~/.ssh/id_rsa_remoterepl_test" >> ~/.ssh/config
+          chmod go-rwx .ssh/*
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-add ~/.ssh/id_rsa_remoterepl_test
       - name: Test ssh
