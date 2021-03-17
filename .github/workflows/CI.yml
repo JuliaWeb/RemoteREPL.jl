@@ -40,22 +40,20 @@ jobs:
           chmod 600 ~/.ssh/*
           chmod 700 ~/.ssh
           sudo chmod -c 0755 ~/
-      - name: Verify sshd config
-        run: |
-          sudo cat /etc/ssh/sshd_config
-      - name: Verify ssh config
-        run: |
-          ls -l ~/.ssh
-          ls -ld ~
-          cat ~/.ssh/authorized_keys
+      # - name: Verify ssh config
+      #   run: |
+      #     sudo cat /etc/ssh/sshd_config
+      #     ls -l ~/.ssh
+      #     ls -ld ~
+      #     cat ~/.ssh/authorized_keys
       - name: Test ssh
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
           ssh -vvv 127.111.111.111 true
-      - name: sshd logs
-        run: |
-          journalctl -t sshd
+      # - name: sshd logs
+      #   run: |
+      #     journalctl -t sshd
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
