@@ -37,6 +37,9 @@ jobs:
           chmod 700 ~/.ssh
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-add ~/.ssh/id_rsa_remoterepl_test
+      - name: Verify sshd config
+        run: |
+          cat /etc/ssh/sshd_config
       - name: Verify ssh config
         run: |
           ls -l ~/.ssh
