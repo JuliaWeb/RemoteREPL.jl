@@ -2,6 +2,8 @@ using RemoteREPL
 using Test
 using Sockets
 
+ENV["JULIA_DEBUG"] = "RemoteREPL"
+
 @testset "Protocol header handshake" begin
     # Happy case
     io = IOBuffer()
@@ -29,24 +31,55 @@ using Sockets
     end
 end
 
+# Connect to a non-default loopback address to test SSH integration
+test_interface = ip"127.111.111.111"
+
+# Detect whether an ssh server is running on the default port 22
+use_ssh = if "use_ssh=true" in ARGS
+    true
+elseif "use_ssh=false" in ARGS
+    false
+else
+    # Autodetct
+    try
+        socket = Sockets.connect(test_interface, 22)
+        # https://tools.ietf.org/html/rfc4253#section-4.2
+        id_string = String(readavailable(socket))
+        startswith(id_string, "SSH-")
+    catch
+        false
+    end
+end
+
+if !use_ssh
+    test_interface = Sockets.localhost
+end
+@info use_ssh ? "Running tests with SSH tunnel" : "Testing without SSH tunnel - localhost only"
+
 # Use non-default port to avoid clashes with concurrent interactive use or testing.
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
-server_proc = run(`$(Base.julia_cmd()) -e "using RemoteREPL; serve_repl($test_port)"`, wait=false)
+server_proc = run(`$(Base.julia_cmd()) -e "using Sockets; using RemoteREPL; serve_repl($test_port)"`, wait=false)
 
 try
 
 @testset "RemoteREPL.jl" begin
     local socket = nothing
-    for i=1:10
+    max_tries = 4
+    for i=1:max_tries
         try
-            socket = RemoteREPL.setup_connection(Sockets.localhost, test_port, false)
+            socket = RemoteREPL.setup_connection(test_interface, test_port,
+                                                 use_ssh_tunnel=use_ssh,
+                                                 ssh_opts=`-o StrictHostKeyChecking=no`)
             break
-        catch
+        catch exc
+            if i == max_tries
+                rethrown()
+            end
             # Server not yet started - continue waiting
-            sleep(0.5)
+            sleep(2)
         end
     end
-    !isnothing(socket) && isopen(socket) || error("Server didn't come up after polling")
+    @assert isopen(socket)
 
     # Some basic tests of the transport and server side and partial client side.
     #

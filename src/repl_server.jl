@@ -66,17 +66,25 @@ end
 
 
 """
-    serve_repl(server)
     serve_repl([address=Sockets.localhost,] port=27754)
+    serve_repl(server)
 
-Start a REPL server listening on interface `address` and `port`. By default,
-incoming connections are limited to localhost only for security and you
-shouldn't change this unless you're on a secure network.
+Start a REPL server listening on interface `address` and `port`. In normal
+operation `serve_repl()` serves REPL clients indefinitely (ie., it does not
+return), so you will generally want to launch it using `@async serve_repl()` to
+do other useful work at the same time.
 
-If you're on a secure network and want to incoming connections on all network
-interfaces you can use address=`ip"0.0.0.0"`. This is not recommended however —
-it's better to instead run an ssh server from the machine which is executing
-`serve_repl()` and use `connect_repl()` in the default ssh tunnel mode.
+If you want to be able to stop the server you can pass an already-listening
+`server` object (the result of `Sockets.listen()`). The server can then be
+cancelled from another task using `close(server)` as necessary to control the
+server lifetime.
+
+## Security
+
+`serve_repl()` uses an *unauthenticated, unecrypted protocol* so it should not
+be used on open networks or multi-user machines where other users aren't
+trused. For open networks, use the default `address=Sockets.localhost` and the
+automatic ssh tunnel support provided by the client-side `connect_repl()`.
 """
 function serve_repl(address=Sockets.localhost, port::Integer=27754)
     server = listen(address, port)

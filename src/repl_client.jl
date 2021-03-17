@@ -37,7 +37,8 @@ function find_free_port(network_interface)
     return free_port
 end
 
-function connect_via_tunnel(host, port; retry_timeout)
+function connect_via_tunnel(host, port; retry_timeout, ssh_opts)
+    # We assume the remote server is only listening for local connections.
     tunnel_interface = Sockets.localhost
     tunnel_port = find_free_port(tunnel_interface)
     ssh_proc = OpenSSH_jll.ssh() do ssh_exe
@@ -45,9 +46,9 @@ function connect_via_tunnel(host, port; retry_timeout)
         # The other end jumps through $host using the provided identity,
         # and forwards the data to $port on *itself* (this is the localhost:$port
         # part - "localhost" being resolved relative to $host)
-        ssh_cmd = `$ssh_exe -o ExitOnForwardFailure=yes -o ServerAliveInterval=60
+        ssh_cmd = `$ssh_exe $ssh_opts -o ExitOnForwardFailure=yes -o ServerAliveInterval=60
                             -N -L $tunnel_interface:$tunnel_port:localhost:$port $host`
-        @debug "Connecting to remote host $host via ssh tunnel to $port" ssh_cmd
+        @debug "Connecting SSH tunnel to remote address $host via ssh tunnel to $port" ssh_cmd
         ssh_errbuf = IOBuffer()
         ssh_proc = run(pipeline(ssh_cmd, stdout=ssh_errbuf, stderr=ssh_errbuf),
                        wait=false)
@@ -139,9 +140,11 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
     end
 end
 
-function setup_connection(host, port, use_ssh_tunnel)
+function setup_connection(host, port;
+                          use_ssh_tunnel = (host!=Sockets.localhost),
+                          ssh_opts=``)
     socket = use_ssh_tunnel ?
-             connect_via_tunnel(host, port; retry_timeout=5) :
+             connect_via_tunnel(host, port; retry_timeout=5, ssh_opts=ssh_opts) :
              connect(host, port)
 
     try
@@ -176,7 +179,7 @@ up for use on that host. For secure networks this can be disabled by setting
 """
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       use_ssh_tunnel::Bool = host!=Sockets.localhost)
-    socket = setup_connection(host, port, use_ssh_tunnel)
+    socket = setup_connection(host, port, use_ssh_tunnel=use_ssh_tunnel)
     out_stream = stdout
     ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,
