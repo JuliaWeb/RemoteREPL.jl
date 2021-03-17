@@ -32,6 +32,7 @@ jobs:
           echo -e "\nHost 127.111.111.111:\n  IdentityFile $HOME/.ssh/id_rsa_remoterepl_test" >> $HOME/.ssh/config
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-add $HOME/.ssh/id_rsa_remoterepl_test
+          ssh -vv 127.111.111.111 true
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
