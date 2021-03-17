@@ -27,10 +27,11 @@ jobs:
         run: |
           mkdir -p $HOME/.ssh
           ssh-keyscan 127.111.111.111 >> $HOME/.ssh/known_hosts
-          ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-keygen -P '' -f $HOME/.ssh/id_rsa_remoterepl_test
-          ssh-add $HOME/.ssh/id_rsa_remoterepl_test
+          cat $HOME/.ssh/id_rsa_remoterepl_test.pub >> $HOME/.ssh/authorized_keys
           echo -e "\nHost 127.111.111.111:\n  IdentityFile $HOME/.ssh/id_rsa_remoterepl_test" >> $HOME/.ssh/config
+          ssh-agent -a $SSH_AUTH_SOCK > /dev/null
+          ssh-add $HOME/.ssh/id_rsa_remoterepl_test
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
