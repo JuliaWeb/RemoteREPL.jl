@@ -21,9 +21,9 @@ jobs:
         arch:
           - x64
     steps:
-      # This doesn't seem to work. Hard to debug due to the SSH server setup on
-      # the test machines that we don't control?
-      #
+      # It's hard to get ssh+sshd setup correct! Here's a reference which helped with this
+      # https://github.com/peznauts/octahe.swift/blob/3b4f117ee2f44406ffd044224cba1803d02e0368/.github/workflows/swift-docker-pull.yml#L46-L75
+      # via https://github.community/t/unable-to-ssh-to-localhost-22/18304/2
       - name: Set up passwordless SSH access for localhost
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
