@@ -21,22 +21,28 @@ jobs:
         arch:
           - x64
     steps:
+      # This doesn't seem to work. Hard to debug due to the SSH server setup on
+      # the test machines that we don't control?
+      #
       - name: Set up passwordless SSH access for localhost
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan 127.111.111.111 >> ~/.ssh/known_hosts
-          ssh-keygen -P '' -f ~/.ssh/id_rsa_remoterepl_test
+          ssh-keygen -N '' -f ~/.ssh/id_rsa_remoterepl_test
           cat ~/.ssh/id_rsa_remoterepl_test.pub >> ~/.ssh/authorized_keys
           echo -e "\nHost 127.111.111.111\n  IdentityFile ~/.ssh/id_rsa_remoterepl_test" >> ~/.ssh/config
-          chmod go-rwx ~/.ssh/*
+          chmod 600 ~/.ssh/authorized_keys
+          chmod 700 ~/.ssh
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-add ~/.ssh/id_rsa_remoterepl_test
       - name: Test ssh
         env:
           SSH_AUTH_SOCK: /tmp/ssh_agent.sock
         run: |
+          ls -l ~/.ssh
+          cat ~/.ssh/authorized_keys
           ssh -vvv 127.111.111.111 true
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
