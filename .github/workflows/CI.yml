@@ -19,13 +19,14 @@ jobs:
           - x64
     steps:
       - name: Set up passwordless SSH access for localhost
-      - run: |
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+        run: |
           mkdir -p $HOME/.ssh
           ssh-keyscan 127.111.111.111 >> $HOME/.ssh/known_hosts
           ssh-agent -a $SSH_AUTH_SOCK > /dev/null
           ssh-keygen -P '' -f $HOME/.ssh/id_rsa_remoterepl_test
           ssh-add $HOME/.ssh/id_rsa_remoterepl_test
-    steps:
       - uses: actions/checkout@v2
       - uses: julia-actions/setup-julia@v1
         with:
@@ -43,3 +44,5 @@ jobs:
             ${{ runner.os }}-
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock
