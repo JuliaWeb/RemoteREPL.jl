@@ -155,14 +155,17 @@ function setup_connection(host, port;
     end
 
     atexit() do
-        if isopen(socket)
-            serialize(socket, (:exit,nothing))
-            flush(socket)
-            close(socket)
-        end
+        close_connection(socket)
     end
 
     return socket
+end
+
+function close_connection(socket)
+    if isopen(socket)
+        serialize(socket, (:exit,nothing))
+        close(socket)
+    end
 end
 
 """
@@ -197,3 +200,30 @@ end
 
 connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
 
+#-------------------------------------------------------------------------------
+"""
+    remote_eval(cmdstr)
+    remote_eval(host, port, cmdstr)
+
+Parse a string `cmdstr`, evaluate it in the remote REPL server's `Main` module,
+then close the connection.
+
+For example, to cause the remote Julia instance to exit, you could use
+
+```
+using RemoteREPL
+RemoteREPL.remote_eval("exit()")
+```
+"""
+function remote_eval(host, port::Integer, cmdstr::AbstractString;
+                     use_ssh_tunnel::Bool = host!=Sockets.localhost)
+    socket = setup_connection(host, port, use_ssh_tunnel=use_ssh_tunnel)
+    io = IOBuffer()
+    run_remote_repl_command(socket, io, cmdstr)
+    close_connection(socket)
+    String(take!(io))
+end
+
+function remote_eval(cmdstr::AbstractString)
+    remote_eval(Sockets.localhost, 27754, cmdstr)
+end

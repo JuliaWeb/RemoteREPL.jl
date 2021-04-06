@@ -99,6 +99,9 @@ try
 
     # Semicolon suppresses output
     @test runcommand("asdf;") == ""
+
+    # Execute a single command on a separate connection
+    @test RemoteREPL.remote_eval(test_interface, test_port, "asdf") == "42\n"
 end
 
 finally
