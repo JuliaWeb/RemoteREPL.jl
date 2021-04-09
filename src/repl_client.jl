@@ -170,7 +170,8 @@ end
 
 """
     connect_repl([host=localhost,] port::Integer=27754;
-                 use_ssh_tunnel = (host != localhost))
+                 use_ssh_tunnel = (host != localhost),
+                 ssh_opts = ``)
 
 Connect client REPL to a remote `host` on `port`. This is then accessible as a
 remote sub-repl of the current Julia session.
@@ -179,10 +180,13 @@ For security, `connect_repl()` uses an ssh tunnel for remote hosts. This means
 that `host` needs to be running an ssh server and you need ssh credentials set
 up for use on that host. For secure networks this can be disabled by setting
 `use_ssh_tunnel=false`.
+
+To provide an identity key for SSH use `` ssh_opts = `-i /path/to/identity.pem` ``
 """
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
-                      use_ssh_tunnel::Bool = host!=Sockets.localhost)
-    socket = setup_connection(host, port, use_ssh_tunnel=use_ssh_tunnel)
+                      use_ssh_tunnel::Bool = host!=Sockets.localhost,
+                      ssh_opts=``)
+    socket = setup_connection(host, port, use_ssh_tunnel=use_ssh_tunnel, ssh_opts=ssh_opts)
     out_stream = stdout
     ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,
