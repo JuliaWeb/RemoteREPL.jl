@@ -37,8 +37,16 @@ process and run commands interactively.
 ### Connecting Julia processes on separate machines
 
 This is the same as above, except:
+
 * Ensure you have an ssh server running on `your.host.example` and can login
-  normally using ssh.
+  normally using ssh. If you've got some particular credentials or ssh options
+  needed for `your.host`, you'll probably find it convenient to set these up in
+  your openSSH config file (`~/.ssh/config` on unix). For example,
+  ```ssh-config
+  Host your.host.example
+      User ubuntu
+      IdentityFile ~/.ssh/some_identity
+  ```
 * Call `connect_repl("your.host.example")` in process B
 
 ## Security considerations
