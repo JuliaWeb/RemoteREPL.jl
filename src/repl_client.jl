@@ -181,7 +181,8 @@ that `host` needs to be running an ssh server and you need ssh credentials set
 up for use on that host. For secure networks this can be disabled by setting
 `use_ssh_tunnel=false`.
 
-To provide an identity key for SSH use `` ssh_opts = `-i /path/to/identity.pem` ``
+To provide extra options to SSH, you may use the `ssh_opts` keyword, for example an identity file may be set with  `` ssh_opts = `-i /path/to/identity.pem` ``.
+Alternatively, you may want to set this up permanently using a `Host` section in your ssh config file.
 """
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       use_ssh_tunnel::Bool = host!=Sockets.localhost,
