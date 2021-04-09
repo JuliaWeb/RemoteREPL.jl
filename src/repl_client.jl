@@ -37,11 +37,26 @@ function find_free_port(network_interface)
     return free_port
 end
 
-function connect_via_tunnel(host, port; retry_timeout, ssh_opts)
-    # We assume the remote server is only listening for local connections.
-    tunnel_interface = Sockets.localhost
-    tunnel_port = find_free_port(tunnel_interface)
-    ssh_proc = OpenSSH_jll.ssh() do ssh_exe
+function comm_pipeline(cmd::Cmd)
+    errbuf = IOBuffer()
+    proc = run(pipeline(cmd, stdout=errbuf, stderr=errbuf),
+               wait=false)
+    atexit() do
+        kill(proc)
+    end
+    @async begin
+        # Attempt to log any connection errors to the user
+        wait(proc)
+        errors = String(take!(errbuf))
+        if !isempty(errors) || !success(proc)
+            @warn "Tunnel output" errors=Text(errors)
+        end
+    end
+    proc
+end
+
+function ssh_tunnel(host, port, tunnel_interface, tunnel_port; ssh_opts=``)
+    OpenSSH_jll.ssh() do ssh_exe
         # Tunnel binds locally to $tunnel_interface:$tunnel_port
         # The other end jumps through $host using the provided identity,
         # and forwards the data to $port on *itself* (this is the localhost:$port
@@ -49,32 +64,37 @@ function connect_via_tunnel(host, port; retry_timeout, ssh_opts)
         ssh_cmd = `$ssh_exe $ssh_opts -o ExitOnForwardFailure=yes -o ServerAliveInterval=60
                             -N -L $tunnel_interface:$tunnel_port:localhost:$port $host`
         @debug "Connecting SSH tunnel to remote address $host via ssh tunnel to $port" ssh_cmd
-        ssh_errbuf = IOBuffer()
-        ssh_proc = run(pipeline(ssh_cmd, stdout=ssh_errbuf, stderr=ssh_errbuf),
-                       wait=false)
-        atexit() do
-            kill(ssh_proc)
-        end
-        @async begin
-            # Attempt to log any ssh connection errors to the user
-            wait(ssh_proc)
-            ssh_errors = String(take!(ssh_errbuf))
-            if !isempty(ssh_errors) || !success(ssh_proc)
-                @warn "SSH tunnel output" ssh_errors=Text(ssh_errors)
-            end
-        end
-        ssh_proc
+        comm_pipeline(ssh_cmd)
     end
-    # Retry loop to give the SSH server time to come up.
+end
+
+function aws_tunnel(instance_id, port, tunnel_port; region=nothing)
+    region = region === nothing ? `` : `--region $region`
+    aws_cmd = `aws ssm start-session $region --target $instance_id --document-name AWS-StartPortForwardingSession --parameters "{\"portNumber\":[\"$port\"],\"localPortNumber\":[\"$tunnel_port\"]}"`
+    @debug "Connecting AWS session manager tunnel to EC2 instance $instance_id via port $port" aws_cmd
+    comm_pipeline(aws_cmd)
+end
+
+function connect_via_tunnel(host, port; retry_timeout, tunnel=:ssh, ssh_opts=``, region=nothing)
+    # We assume the remote server is only listening for local connections.
+    tunnel_interface = Sockets.localhost
+    tunnel_port = find_free_port(tunnel_interface)
+    comm_proc = if tunnel == :ssh
+            ssh_tunnel(host, port, tunnel_interface, tunnel_port; ssh_opts=ssh_opts)
+        elseif tunnel == :aws
+            aws_tunnel(host, port, tunnel_port; region=region)
+        end
+
+    # Retry loop to wait for the connection.
     for i=1:retry_timeout
         try
             return connect(tunnel_interface, tunnel_port)
         catch exc
-            if (exc isa Base.IOError) && process_running(ssh_proc) && i < retry_timeout
+            if (exc isa Base.IOError) && process_running(comm_proc) && i < retry_timeout
                 sleep(1)
             else
-                kill(ssh_proc)
-                wait(ssh_proc)
+                kill(comm_proc)
+                wait(comm_proc)
                 @error "Exceeded maximum socket connection attempts"
                 rethrow()
             end
@@ -141,11 +161,14 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
 end
 
 function setup_connection(host, port;
-                          use_ssh_tunnel = (host!=Sockets.localhost),
-                          ssh_opts=``)
-    socket = use_ssh_tunnel ?
-             connect_via_tunnel(host, port; retry_timeout=5, ssh_opts=ssh_opts) :
-             connect(host, port)
+                          tunnel = (host!=Sockets.localhost) ? :ssh : :none,
+                          ssh_opts=``, region=nothing)
+    socket = if tunnel == :none
+            connect(host, port)
+        else
+            connect_via_tunnel(host, port; retry_timeout=5,
+                tunnel=tunnel, ssh_opts=ssh_opts, region=region)
+        end
 
     try
         verify_header(socket)
@@ -179,15 +202,18 @@ remote sub-repl of the current Julia session.
 For security, `connect_repl()` uses an ssh tunnel for remote hosts. This means
 that `host` needs to be running an ssh server and you need ssh credentials set
 up for use on that host. For secure networks this can be disabled by setting
-`use_ssh_tunnel=false`.
+`tunnel=:none`.
 
 To provide extra options to SSH, you may use the `ssh_opts` keyword, for example an identity file may be set with  `` ssh_opts = `-i /path/to/identity.pem` ``.
 Alternatively, you may want to set this up permanently using a `Host` section in your ssh config file.
+
+To use AWS Session Manager for tunneling instead of SSH set `tunnel=:aws`. See
+README.md for more information.
 """
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
-                      use_ssh_tunnel::Bool = host!=Sockets.localhost,
-                      ssh_opts=``)
-    socket = setup_connection(host, port, use_ssh_tunnel=use_ssh_tunnel, ssh_opts=ssh_opts)
+                      tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
+                      ssh_opts=``, region=nothing)
+    socket = setup_connection(host, port, tunnel=tunnel, ssh_opts=ssh_opts, region=region)
     out_stream = stdout
     ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,
@@ -221,8 +247,8 @@ RemoteREPL.remote_eval("exit()")
 ```
 """
 function remote_eval(host, port::Integer, cmdstr::AbstractString;
-                     use_ssh_tunnel::Bool = host!=Sockets.localhost)
-    socket = setup_connection(host, port, use_ssh_tunnel=use_ssh_tunnel)
+                     tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none)
+    socket = setup_connection(host, port, tunnel=tunnel)
     io = IOBuffer()
     run_remote_repl_command(socket, io, cmdstr)
     close_connection(socket)

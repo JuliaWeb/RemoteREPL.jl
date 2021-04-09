@@ -68,7 +68,7 @@ try
     for i=1:max_tries
         try
             socket = RemoteREPL.setup_connection(test_interface, test_port,
-                                                 use_ssh_tunnel=use_ssh,
+                                                 tunnel=use_ssh ? :ssh : :none,
                                                  ssh_opts=`-o StrictHostKeyChecking=no`)
             break
         catch exc
