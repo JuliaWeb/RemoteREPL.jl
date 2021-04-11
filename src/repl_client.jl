@@ -75,7 +75,15 @@ function aws_tunnel(instance_id, port, tunnel_port; region=nothing)
     comm_pipeline(aws_cmd)
 end
 
-function connect_via_tunnel(host, port; retry_timeout, tunnel=:ssh, ssh_opts=``, region=nothing)
+function k8s_tunnel(host, port, tunnel_port; namespace=nothing)
+    namespace = namespace === nothing ? `` : `-n $namespace`
+    k8s_cmd = `kubectl port-forward $namespace $host $tunnel_port:$port`
+    @debug "Connecting through kubectl to resource $host via port $port" k8s_cmd
+    comm_pipeline(k8s_cmd)
+end
+
+function connect_via_tunnel(host, port; retry_timeout,
+        tunnel=:ssh, ssh_opts=``, region=nothing, namespace=nothing)
     # We assume the remote server is only listening for local connections.
     tunnel_interface = Sockets.localhost
     tunnel_port = find_free_port(tunnel_interface)
@@ -83,6 +91,8 @@ function connect_via_tunnel(host, port; retry_timeout, tunnel=:ssh, ssh_opts=``,
             ssh_tunnel(host, port, tunnel_interface, tunnel_port; ssh_opts=ssh_opts)
         elseif tunnel == :aws
             aws_tunnel(host, port, tunnel_port; region=region)
+        elseif tunnel == :k8s
+            k8s_tunnel(host, port, tunnel_port; namespace=namespace)
         end
 
     # Retry loop to wait for the connection.
@@ -162,12 +172,13 @@ end
 
 function setup_connection(host, port;
                           tunnel = (host!=Sockets.localhost) ? :ssh : :none,
-                          ssh_opts=``, region=nothing)
+                          ssh_opts=``, region=nothing, namespace=nothing)
     socket = if tunnel == :none
             connect(host, port)
         else
             connect_via_tunnel(host, port; retry_timeout=5,
-                tunnel=tunnel, ssh_opts=ssh_opts, region=region)
+                tunnel=tunnel, ssh_opts=ssh_opts, region=region,
+                namespace=namespace)
         end
 
     try
@@ -207,13 +218,17 @@ up for use on that host. For secure networks this can be disabled by setting
 To provide extra options to SSH, you may use the `ssh_opts` keyword, for example an identity file may be set with  `` ssh_opts = `-i /path/to/identity.pem` ``.
 Alternatively, you may want to set this up permanently using a `Host` section in your ssh config file.
 
-To use AWS Session Manager for tunneling instead of SSH set `tunnel=:aws`. See
-README.md for more information.
+You can also use the following technologies for tunneling in place of SSH:
+1) AWS Session Manager: set `tunnel=:aws`. The optional `region` keyword argument can be used to specify the AWS Region of your server.
+2) kubectl: set `tunnel=:k8s`. The optional `namespace` keyword argument can be used to specify the namespace of your Kubernetes resource.
+
+See README.md for more information.
 """
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
-                      ssh_opts=``, region=nothing)
-    socket = setup_connection(host, port, tunnel=tunnel, ssh_opts=ssh_opts, region=region)
+                      ssh_opts=``, region=nothing, namespace=nothing)
+    socket = setup_connection(host, port, tunnel=tunnel, ssh_opts=ssh_opts,
+                 region=region, namespace=namespace)
     out_stream = stdout
     ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
                        repl         = Base.active_repl,
