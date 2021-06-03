@@ -5,25 +5,6 @@ using Sockets
 
 using OpenSSH_jll
 
-function verify_header(io, ser_version=Serialization.ser_version)
-    magic = String(read(io, length(protocol_magic)))
-    if magic != protocol_magic
-        error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(protocol_magic))")
-    end
-    version = read(io, typeof(protocol_version))
-    if version != protocol_version
-        error("RemoteREPL protocol version number mismatch: $version != $protocol_version")
-    end
-    # Version 1: We rely on the standard Serialization library for simplicity;
-    # that's backward but not forward compatible depending on
-    # Serialization.ser_version, so we check for an exact match
-    remote_ser_version = read(io, UInt32)
-    if remote_ser_version != ser_version
-        error("RemoteREPL Julia Serialization format version mismatch: $remote_ser_version != $ser_version")
-    end
-    return true
-end
-
 # Find a free port on `network_interface`
 function find_free_port(network_interface)
     # listen on port 0 => kernel chooses a free port. See, for example,
@@ -41,6 +22,7 @@ function comm_pipeline(cmd::Cmd)
     errbuf = IOBuffer()
     proc = run(pipeline(cmd, stdout=errbuf, stderr=errbuf),
                wait=false)
+    # TODO: Kill this earlier if we need to reconnect in ensure_connected!()
     atexit() do
         kill(proc)
     end
@@ -112,6 +94,86 @@ function connect_via_tunnel(host, port; retry_timeout,
     end
 end
 
+
+#-------------------------------------------------------------------------------
+# RemoteREPL connection handling
+
+mutable struct Connection
+    host
+    port
+    tunnel
+    ssh_opts
+    region
+    namespace
+    socket
+end
+
+function Connection(; host=Sockets.localhost, port::Integer=27754,
+                    tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
+                    ssh_opts=``, region=nothing, namespace=nothing)
+    conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing)
+    setup_connection!(conn)
+    finalizer(close_connection!, conn)
+end
+
+Base.isopen(conn::Connection) = !isnothing(conn.socket) && isopen(conn.socket)
+
+function verify_header(io, ser_version=Serialization.ser_version)
+    magic = String(read(io, length(protocol_magic)))
+    if magic != protocol_magic
+        error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(protocol_magic))")
+    end
+    version = read(io, typeof(protocol_version))
+    if version != protocol_version
+        error("RemoteREPL protocol version number mismatch: $version != $protocol_version")
+    end
+    # Version 1: We rely on the standard Serialization library for simplicity;
+    # that's backward but not forward compatible depending on
+    # Serialization.ser_version, so we check for an exact match
+    remote_ser_version = read(io, UInt32)
+    if remote_ser_version != ser_version
+        error("RemoteREPL Julia Serialization format version mismatch: $remote_ser_version != $ser_version")
+    end
+    return true
+end
+
+function setup_connection!(conn::Connection)
+    socket = if conn.tunnel == :none
+        connect(conn.host, conn.port)
+    else
+        connect_via_tunnel(conn.host, conn.port; retry_timeout=5,
+            tunnel=conn.tunnel, ssh_opts=conn.ssh_opts, region=conn.region,
+            namespace=conn.namespace)
+    end
+    try
+        verify_header(socket)
+    catch exc
+        close(socket)
+        rethrow()
+    end
+    conn.socket = socket
+    conn
+end
+
+function ensure_connected!(conn)
+    if !isopen(conn)
+        @info "Connection dropped, attempting reconnect"
+        setup_connection!(conn)
+    end
+end
+
+function close_connection!(conn::Connection)
+    try
+        if !isnothing(conn.socket) && isopen(conn.socket)
+            serialize(conn.socket, (:exit,nothing))
+            close(conn.socket)
+        end
+    finally
+        conn.socket = nothing
+    end
+end
+
+#-------------------------------------------------------------------------------
 function valid_input_checker(prompt_state)
     ast = Base.parse_input_line(String(take!(copy(REPL.LineEdit.buffer(prompt_state)))),
                                 depwarn=false)
@@ -119,27 +181,39 @@ function valid_input_checker(prompt_state)
 end
 
 struct RemoteCompletionProvider <: REPL.LineEdit.CompletionProvider
-    socket
+    connection
 end
 
-function REPL.complete_line(c::RemoteCompletionProvider, state::REPL.LineEdit.PromptState)
+function REPL.complete_line(provider::RemoteCompletionProvider, state::REPL.LineEdit.PromptState)
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
-    serialize(c.socket, (:repl_completion, (partial, full)))
-    messageid, value = deserialize(c.socket)
-    if messageid != :completion_result
-        @warn "Completion failure" messageid
+    try
+        ensure_connected!(provider.connection)
+        serialize(provider.connection.socket, (:repl_completion, (partial, full)))
+        messageid, value = deserialize(provider.connection.socket)
+        if messageid != :completion_result
+            @warn "Completion failure" messageid
+            return ([], "", false)
+        end
+        return value
+    catch exc
+        try
+            close_connection!(provider.connection)
+        catch
+            exc isa Base.IOError || rethrow()
+        end
+        @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
         return ([], "", false)
     end
-    return value
 end
 
-function run_remote_repl_command(socket, out_stream, cmdstr)
+function run_remote_repl_command(conn, out_stream, cmdstr)
     ast = Base.parse_input_line(cmdstr, depwarn=false)
     messageid=nothing
     value=nothing
     try
+        ensure_connected!(conn)
         # See REPL.jl: display(d::REPLDisplay, mime::MIME"text/plain", x)
         display_props = Dict(
             :displaysize=>displaysize(out_stream),
@@ -147,19 +221,20 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
             :limit=>true,
             :module=>Main,
         )
-        serialize(socket, (:display_properties, display_props))
-        serialize(socket, (:eval, ast))
-        flush(socket)
-        response = deserialize(socket)
+        serialize(conn.socket, (:display_properties, display_props))
+        serialize(conn.socket, (:eval, ast))
+        flush(conn.socket)
+        response = deserialize(conn.socket)
         messageid, value = response isa Tuple && length(response) == 2 ?
                            response : (nothing,nothing)
     catch exc
-        if exc isa Base.IOError
-            messageid = :error
-            value = "IOError - Remote Julia exited or is inaccessible"
-        else
-            rethrow()
+        try
+            close_connection!(conn)
+        catch
+            exc isa Base.IOError || rethrow()
         end
+        @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
+        return
     end
     if messageid == :eval_result || messageid == :error
         if !isnothing(value) && !REPL.ends_with_semicolon(cmdstr)
@@ -170,37 +245,8 @@ function run_remote_repl_command(socket, out_stream, cmdstr)
     end
 end
 
-function setup_connection(host, port;
-                          tunnel = (host!=Sockets.localhost) ? :ssh : :none,
-                          ssh_opts=``, region=nothing, namespace=nothing)
-    socket = if tunnel == :none
-            connect(host, port)
-        else
-            connect_via_tunnel(host, port; retry_timeout=5,
-                tunnel=tunnel, ssh_opts=ssh_opts, region=region,
-                namespace=namespace)
-        end
-
-    try
-        verify_header(socket)
-    catch exc
-        close(socket)
-        rethrow()
-    end
-
-    atexit() do
-        close_connection(socket)
-    end
-
-    return socket
-end
-
-function close_connection(socket)
-    if isopen(socket)
-        serialize(socket, (:exit,nothing))
-        close(socket)
-    end
-end
+#-------------------------------------------------------------------------------
+# Public APIs
 
 """
     connect_repl([host=localhost,] port::Integer=27754;
@@ -227,10 +273,10 @@ See README.md for more information.
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
                       ssh_opts=``, region=nothing, namespace=nothing)
-    socket = setup_connection(host, port, tunnel=tunnel, ssh_opts=ssh_opts,
-                 region=region, namespace=namespace)
+    conn = Connection(host=host, port=port, tunnel=tunnel,
+                      ssh_opts=ssh_opts, region=region, namespace=namespace)
     out_stream = stdout
-    ReplMaker.initrepl(c->run_remote_repl_command(socket, out_stream, c),
+    ReplMaker.initrepl(c->run_remote_repl_command(conn, out_stream, c),
                        repl         = Base.active_repl,
                        valid_input_checker = valid_input_checker,
                        prompt_text  = "remote> ",
@@ -238,7 +284,7 @@ function connect_repl(host=Sockets.localhost, port::Integer=27754;
                        start_key    = '>',
                        sticky_mode  = true,
                        mode_name    = "remote_repl",
-                       completion_provider = RemoteCompletionProvider(socket)
+                       completion_provider = RemoteCompletionProvider(conn)
                        )
                        # startup_text = false)
     nothing
@@ -246,7 +292,7 @@ end
 
 connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
 
-#-------------------------------------------------------------------------------
+#--------------------------------------------------
 """
     remote_eval(cmdstr)
     remote_eval(host, port, cmdstr)
@@ -263,10 +309,11 @@ RemoteREPL.remote_eval("exit()")
 """
 function remote_eval(host, port::Integer, cmdstr::AbstractString;
                      tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none)
-    socket = setup_connection(host, port, tunnel=tunnel)
+    conn = Connection(; host=host, port=port, tunnel=tunnel)
+    setup_connection!(conn)
     io = IOBuffer()
-    run_remote_repl_command(socket, io, cmdstr)
-    close_connection(socket)
+    run_remote_repl_command(conn, io, cmdstr)
+    close_connection!(conn)
     String(take!(io))
 end
 

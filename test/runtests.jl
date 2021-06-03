@@ -63,13 +63,13 @@ server_proc = run(`$(Base.julia_cmd()) -e "using Sockets; using RemoteREPL; serv
 try
 
 @testset "RemoteREPL.jl" begin
-    local socket = nothing
+    local conn = nothing
     max_tries = 4
     for i=1:max_tries
         try
-            socket = RemoteREPL.setup_connection(test_interface, test_port,
-                                                 tunnel=use_ssh ? :ssh : :none,
-                                                 ssh_opts=`-o StrictHostKeyChecking=no`)
+            conn = RemoteREPL.Connection(host=test_interface, port=test_port,
+                                         tunnel=use_ssh ? :ssh : :none,
+                                         ssh_opts=`-o StrictHostKeyChecking=no`)
             break
         catch exc
             if i == max_tries
@@ -79,13 +79,13 @@ try
             sleep(2)
         end
     end
-    @assert isopen(socket)
+    @assert isopen(conn)
 
     # Some basic tests of the transport and server side and partial client side.
     #
     # More full testing of the client code would requires some tricky mocking
     # of the REPL environment.
-    runcommand(cmdstr) = sprint(io->RemoteREPL.run_remote_repl_command(socket, io, cmdstr))
+    runcommand(cmdstr) = sprint(io->RemoteREPL.run_remote_repl_command(conn, io, cmdstr))
 
     @test runcommand("asdf = 42") == "42\n"
     @test runcommand("Main.asdf") == "42\n"
