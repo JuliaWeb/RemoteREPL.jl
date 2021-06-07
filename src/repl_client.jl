@@ -184,7 +184,9 @@ struct RemoteCompletionProvider <: REPL.LineEdit.CompletionProvider
     connection
 end
 
-function REPL.complete_line(provider::RemoteCompletionProvider, state::REPL.LineEdit.PromptState)
+function REPL.complete_line(provider::RemoteCompletionProvider,
+                            state::REPL.LineEdit.PromptState)::
+                            Tuple{Vector{String},String,Bool}
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
