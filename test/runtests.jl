@@ -100,6 +100,14 @@ try
     # Semicolon suppresses output
     @test runcommand("asdf;") == ""
 
+    # Help mode
+    @test occursin("helpmodetest documentation!",
+        begin
+            runcommand("function helpmodetest end")
+            runcommand("@doc \"helpmodetest documentation!\" helpmodetest")
+            runcommand("?helpmodetest")
+        end)
+
     # Execute a single command on a separate connection
     @test RemoteREPL.remote_eval(test_interface, test_port, "asdf") == "42\n"
 end
