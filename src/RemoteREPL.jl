@@ -8,6 +8,7 @@ export connect_repl, serve_repl
 const protocol_magic = "RemoteREPL"
 const protocol_version = UInt32(1);
 
+include("tunnels.jl")
 include("server.jl")
 include("client.jl")
 
