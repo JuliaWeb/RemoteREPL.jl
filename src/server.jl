@@ -39,6 +39,12 @@ function serve_repl_session(socket)
                         show(io, MIME"text/plain"(), result)
                     end
                 response = (:eval_result, resultval)
+            elseif messageid == :help
+                resultval = format_result(display_properties) do io
+                    md = Main.eval(REPL.helpmode(io, value))
+                    show(io, MIME"text/plain"(), md)
+                end
+                response = (:help_result, resultval)
             elseif messageid == :display_properties
                 @debug "Got client display properties" display_properties
                 display_properties = value::Dict

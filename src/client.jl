@@ -121,7 +121,12 @@ function REPL.complete_line(provider::RemoteCompletionProvider,
 end
 
 function run_remote_repl_command(conn, out_stream, cmdstr)
-    ast = Base.parse_input_line(cmdstr, depwarn=false)
+    if startswith(cmdstr, "?")
+        cmd = (:help, cmdstr[2:end])
+    else
+        ast = Base.parse_input_line(cmdstr, depwarn=false)
+        cmd = (:eval, ast)
+    end
     messageid=nothing
     value=nothing
     try
@@ -134,7 +139,7 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
             :module=>Main,
         )
         serialize(conn.socket, (:display_properties, display_props))
-        serialize(conn.socket, (:eval, ast))
+        serialize(conn.socket, cmd)
         flush(conn.socket)
         response = deserialize(conn.socket)
         messageid, value = response isa Tuple && length(response) == 2 ?
@@ -148,9 +153,11 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
         @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
         return
     end
-    if messageid == :eval_result || messageid == :error
-        if !isnothing(value) && !REPL.ends_with_semicolon(cmdstr)
-            println(out_stream, value)
+    if messageid in (:eval_result, :help_result, :error)
+        if !isnothing(value)
+            if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
+                println(out_stream, value)
+            end
         end
     else
         @error "Unexpected response from server" messageid
