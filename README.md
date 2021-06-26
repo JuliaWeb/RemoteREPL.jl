@@ -5,7 +5,7 @@
 `RemoteREPL` allows you to connect your local julia REPL to a separate Julia
 process and run commands interactively. Features include:
 
-* Runs code in the Main module
+* Runs code in the Main module of a remote Julia process
 * Normal REPL tab completion
 * Help mode (use the `?` prefix)
 
