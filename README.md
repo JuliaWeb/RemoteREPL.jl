@@ -9,6 +9,10 @@ process and run commands interactively. Features include:
 * Normal REPL tab completion
 * Help mode (use the `?` prefix)
 
+## Demo
+
+[<img src="https://asciinema.org/a/422428.svg" width=50%>](https://asciinema.org/a/422428)
+
 ## Quick start
 
 ### Connecting two Julia processes on the same machine:
