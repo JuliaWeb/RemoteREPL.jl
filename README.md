@@ -3,36 +3,48 @@
 [![Build Status](https://github.com/c42f/RemoteREPL.jl/workflows/CI/badge.svg)](https://github.com/c42f/RemoteREPL.jl/actions)
 
 `RemoteREPL` allows you to connect your local julia REPL to a separate Julia
-process and run commands interactively.
+process and run commands interactively. Features include:
+
+* Runs code in the Main module
+* Normal REPL tab completion
+* Help mode (use the `?` prefix)
 
 ## Quick start
 
 ### Connecting two Julia processes on the same machine:
 
+First start up a REPL server in process A. This will allow any number of
+external clients to connect
 
-1. In process A
-    ```julia
-    julia> using RemoteREPL
+```julia
+julia> using RemoteREPL
 
-    julia> @async serve_repl()
-    ┌ Info: REPL client opened a connection
-    └   peer = (ip"127.0.0.1", 0xa68e)
-    ```
-2. In process B
-    ```julia
-    julia> using RemoteREPL
+julia> @async serve_repl()
+```
 
-    julia> connect_repl()
-    REPL mode remote_repl initialized. Press > to enter and backspace to exit.
+Now start a *separate* Julia session B, connect to process A and execute
+some command:
 
-    remote> x = 123
-    123
-    ```
-3. In process A
-    ```julia
-    julia> x
-    123
-    ```
+```julia
+julia> using RemoteREPL
+
+julia> connect_repl()
+REPL mode remote_repl initialized. Press > to enter and backspace to exit.
+
+remote> x = 123
+123
+```
+
+Back in the REPL of process A you'll now see that a client has connected, and
+the variable `x` has been set in the `Main` module:
+
+```julia
+┌ Info: REPL client opened a connection
+└   peer = (ip"127.0.0.1", 0xa68e)
+
+julia> x
+123
+```
 
 ### Connecting Julia processes on separate machines
 
@@ -78,4 +90,18 @@ you'll be left with *no security whatsoever*.
 TLDR; this package aims to provide safe defaults for single-user machines.
 However, *do not expose the RemoteREPL port to an open network*. Abitrary
 remote code execution is the main feature provided by this package!
+
+## Design
+
+RemoteREPL formats results as text (using `show(io, "text/plain", result)`) for
+communication back to the client terminal. This is helpful because:
+* The result of a computation might be large, and it should be summarized
+  before sending back.
+* The remote machine may be a separate application with different modules
+  loaded; it may not be possible to deserialize the results in the local Julia
+  session.
+
+Currently RemoteREPL uses the standard Serialization library to format messages
+on the wire, but this isn't bidirectionally compatible between Julia versions
+so we'll probably move to something else in the future.
 
