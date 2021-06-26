@@ -18,7 +18,10 @@ function verify_header(io, ser_version=Serialization.ser_version)
     # Serialization.ser_version, so we check for an exact match
     remote_ser_version = read(io, UInt32)
     if remote_ser_version != ser_version
-        error("RemoteREPL Julia Serialization format version mismatch: $remote_ser_version != $ser_version")
+        error("""
+              RemoteREPL Julia Serialization format version mismatch: $remote_ser_version != $ser_version
+              Try using the same version of Julia on the server and client.
+              """)
     end
     return true
 end
@@ -82,6 +85,33 @@ function close_connection!(conn::Connection)
     end
 end
 
+function ensure_connected!(f::Function, conn::Connection; retries=1)
+    n_try = 1
+    while true
+        try
+            ensure_connected!(conn)
+            return f()
+        catch exc
+            try
+                close_connection!(conn)
+            catch
+                exc isa Base.IOError || rethrow()
+            end
+            if n_try == retries+1
+                @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
+                return (:connection_failure, nothing)
+            end
+            n_try += 1
+        end
+    end
+end
+
+function send_message(conn::Connection, message; read_response=true)
+    serialize(conn.socket, message)
+    flush(conn.socket)
+    return read_response ? deserialize(conn.socket) : (:nothing, nothing)
+end
+
 #-------------------------------------------------------------------------------
 # REPL integration
 function valid_input_checker(prompt_state)
@@ -100,68 +130,45 @@ function REPL.complete_line(provider::RemoteCompletionProvider,
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
-    try
-        ensure_connected!(provider.connection)
-        serialize(provider.connection.socket, (:repl_completion, (partial, full)))
-        messageid, value = deserialize(provider.connection.socket)
-        if messageid != :completion_result
-            @warn "Completion failure" messageid
-            return ([], "", false)
-        end
-        return value
-    catch exc
-        try
-            close_connection!(provider.connection)
-        catch
-            exc isa Base.IOError || rethrow()
-        end
-        @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
+    messageid, value = ensure_connected!(provider.connection) do
+        send_message(provider.connection, (:repl_completion, (partial, full)))
+    end
+    if messageid != :completion_result
         return ([], "", false)
     end
+    return value
 end
 
 function run_remote_repl_command(conn, out_stream, cmdstr)
-    if startswith(cmdstr, "?")
-        cmd = (:help, cmdstr[2:end])
-    else
-        ast = Base.parse_input_line(cmdstr, depwarn=false)
-        cmd = (:eval, ast)
-    end
-    messageid=nothing
-    value=nothing
-    try
-        ensure_connected!(conn)
-        # See REPL.jl: display(d::REPLDisplay, mime::MIME"text/plain", x)
+    ensure_connected!(conn) do
+        # Set terminal properties for formatting result
         display_props = Dict(
             :displaysize=>displaysize(out_stream),
             :color=>get(out_stream, :color, false),
             :limit=>true,
             :module=>Main,
         )
-        serialize(conn.socket, (:display_properties, display_props))
-        serialize(conn.socket, cmd)
-        flush(conn.socket)
-        response = deserialize(conn.socket)
-        messageid, value = response isa Tuple && length(response) == 2 ?
-                           response : (nothing,nothing)
-    catch exc
-        try
-            close_connection!(conn)
-        catch
-            exc isa Base.IOError || rethrow()
+        send_message(conn, (:display_properties, display_props), read_response=false)
+
+        # Send actual command
+        if startswith(cmdstr, "?")
+            cmd = (:help, cmdstr[2:end])
+        else
+            ast = Base.parse_input_line(cmdstr, depwarn=false)
+            cmd = (:eval, ast)
         end
-        @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
-        return
-    end
-    if messageid in (:eval_result, :help_result, :error)
-        if !isnothing(value)
-            if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
-                println(out_stream, value)
+        messageid, value = send_message(conn, cmd)
+        if messageid in (:eval_result, :help_result, :error)
+            if !isnothing(value)
+                if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
+                    println(out_stream, value)
+                end
             end
+        else
+            @error "Unexpected response from server" messageid
         end
-    else
-        @error "Unexpected response from server" messageid
     end
+    nothing
 end
 
 #-------------------------------------------------------------------------------
