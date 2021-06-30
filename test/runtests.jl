@@ -97,6 +97,9 @@ try
     # Error formatting
     @test occursin(r"DivideError.*Stacktrace"s, runcommand("1÷0"))
 
+    # Logging
+    @test occursin(r"Info:.*xxx"s, runcommand("""@info "hi" xxx=[1,2]"""))
+
     # Semicolon suppresses output
     @test runcommand("asdf;") == ""
 
