@@ -1,6 +1,7 @@
 using Sockets
 using Serialization
 using REPL
+using Logging
 
 function send_header(io, ser_version=Serialization.ser_version)
     write(io, protocol_magic, protocol_version)
@@ -33,11 +34,14 @@ function serve_repl_session(socket)
             messageid,value = request isa Tuple && length(request) == 2 ?
                             request : (nothing,nothing)
             if messageid == :eval
-                result = Main.eval(value)
-                resultval = isnothing(result) ? nothing :
-                    format_result(display_properties) do io
+                resultval = format_result(display_properties) do io
+                    result = with_logger(ConsoleLogger(io)) do
+                        Main.eval(value)
+                    end
+                    if !isnothing(result)
                         show(io, MIME"text/plain"(), result)
                     end
+                end
                 response = (:eval_result, resultval)
             elseif messageid == :help
                 resultval = format_result(display_properties) do io
