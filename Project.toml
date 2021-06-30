@@ -1,7 +1,7 @@
 name = "RemoteREPL"
 uuid = "1bd9f7bb-701c-4338-bec7-ac987af7c555"
 authors = ["Chris Foster <chris42f@gmail.com> and contributors"]
-version = "0.2.3"
+version = "0.2.4"
 
 [deps]
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
