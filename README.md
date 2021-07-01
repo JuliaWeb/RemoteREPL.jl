@@ -3,17 +3,18 @@
 [![Build Status](https://github.com/c42f/RemoteREPL.jl/workflows/CI/badge.svg)](https://github.com/c42f/RemoteREPL.jl/actions)
 
 `RemoteREPL` allows you to connect your local julia REPL to a separate Julia
-process and run commands interactively. Features include:
+process and run commands interactively:
 
-* Runs code in the Main module of a remote Julia process
-* Normal REPL tab completion
-* Help mode (use the `?` prefix)
+* Run code in the `Main` module of a remote Julia process
+* Standard REPL tab completion and help mode with `?`
+* Transfer variables between processes with `%get` and `%put`
+* Automatic ssh tunnel for network security. Reconnects dropped connections.
 
 ## Demo
 
 [<img src="https://asciinema.org/a/422428.svg" width=50%>](https://asciinema.org/a/422428)
 
-## Quick start
+## Tutorial
 
 ### Connecting two Julia processes on the same machine:
 
@@ -50,9 +51,11 @@ julia> x
 123
 ```
 
+## How-To
+
 ### Connecting Julia processes on separate machines
 
-This is the same as above, except:
+This is similar to the tutorial:
 
 * Ensure you have an ssh server running on `your.host.example` and can login
   normally using ssh. If you've got some particular credentials or ssh options
@@ -63,7 +66,68 @@ This is the same as above, except:
       User ubuntu
       IdentityFile ~/.ssh/some_identity
   ```
-* Call `connect_repl("your.host.example")` in process B
+* Call `serve_repl()` on the server
+* Call `connect_repl("your.host.example")` on the client
+
+### Transfer variables between client and server
+
+Transferring Julia *values* can be helpful if the local client side has
+resources such as plotting utilities which are not usable on the remote server.
+
+Transfer a value from a variable `x` on the server and assign it to the name
+`x` on the client:
+
+```julia
+remote> x = 42;
+
+remote> %put x
+42
+
+julia> x
+42
+```
+
+Transfer a variable to the server under a new name
+
+```julia
+julia> y = 101;
+
+remote> %get z = y
+101
+```
+
+More general expressions on the right and left hand sides also work:
+
+```julia
+remote> x = [1,2];
+
+remote> %put y = x .+ 1
+2-element Vector{Int64}:
+ 2
+ 3
+
+remote> %put a,b = x
+2-element Vector{Int64}:
+ 1
+ 2
+
+julia> a
+1
+```
+
+## Reference
+
+### REPL syntax
+
+RemoteREPL syntax is just normal julia REPL syntax with minor additions:
+
+* `?expr` produces help for `expr`. This is just like the normal REPL, but we
+  don't have a separate help mode.
+* `%get lhs = rhs` evaluates `rhs` on the client and assigns to `lhs` on the
+  remote server.
+* `%put lhs = rhs` evaluates `rhs` on the server and assigns to `lhs` on the
+  client.
+* `%get x` is shorthand for `%get x = x`, and similarly for `%put`.
 
 ### Alternatives to SSH
 
@@ -77,7 +141,7 @@ Setup your AWS CLI by running `aws configure` on the command line. You can then 
 
 If [kubectl](https://kubernetes.io/docs/reference/kubectl/overview/) is configured on your local system, you can use that to connect to RemoteREPL servers on your Kubernetes cluster. Run the following snippet: `connect_repl("your-pod-name"; tunnel=:k8s, namespace="your-namespace")`. The `namespace` argument is only required if the Pod is not in the default Kubernetes namespace.
 
-## Security considerations
+### Security considerations
 
 Note that *any logged-in users on the client or server machines can execute
 arbitrary commands in the serve_repl() process*. For this reason, you should
@@ -94,6 +158,7 @@ you'll be left with *no security whatsoever*.
 TLDR; this package aims to provide safe defaults for single-user machines.
 However, *do not expose the RemoteREPL port to an open network*. Abitrary
 remote code execution is the main feature provided by this package!
+
 
 ## Design
 
