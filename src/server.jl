@@ -43,6 +43,14 @@ function serve_repl_session(socket)
                     end
                 end
                 response = (:eval_result, resultval)
+            elseif messageid == :eval_and_get
+                result = nothing
+                logstr = format_result(display_properties) do io
+                    result = with_logger(ConsoleLogger(io)) do
+                        Main.eval(value)
+                    end
+                end
+                response = (:eval_and_get_result, (result, logstr))
             elseif messageid == :help
                 resultval = format_result(display_properties) do io
                     md = Main.eval(REPL.helpmode(io, value))

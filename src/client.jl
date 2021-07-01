@@ -114,10 +114,32 @@ end
 
 #-------------------------------------------------------------------------------
 # REPL integration
+function parse_input(str)
+    Base.parse_input_line(str)
+end
+
+function match_magic_syntax(str)
+    if startswith(str, '?')
+        return "?", str[2:end]
+    else
+        m = match(r"^(%get|%put)(?:[[:space:]]+(.*))?", str)
+        if isnothing(m)
+            return nothing
+        else
+            suffix = m[2]
+            return m[1], isnothing(suffix) ? "" : suffix
+        end
+    end
+end
+
 function valid_input_checker(prompt_state)
-    ast = Base.parse_input_line(String(take!(copy(REPL.LineEdit.buffer(prompt_state)))),
-                                depwarn=false)
-    return !Meta.isexpr(ast, :incomplete)
+    cmdstr = String(take!(copy(REPL.LineEdit.buffer(prompt_state))))
+    magic = match_magic_syntax(cmdstr)
+    if !isnothing(magic)
+        cmdstr = magic[2]
+    end
+    ex = parse_input(cmdstr)
+    return !Meta.isexpr(ex, :incomplete)
 end
 
 struct RemoteCompletionProvider <: REPL.LineEdit.CompletionProvider
@@ -151,11 +173,47 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
         send_message(conn, (:display_properties, display_props), read_response=false)
 
         # Send actual command
-        if startswith(cmdstr, "?")
-            cmd = (:help, cmdstr[2:end])
+        magic = match_magic_syntax(cmdstr)
+        put_lhs = nothing
+        if isnothing(magic)
+            # Normal remote evaluation
+            ex = parse_input(cmdstr)
+            cmd = (:eval, ex)
         else
-            ast = Base.parse_input_line(cmdstr, depwarn=false)
-            cmd = (:eval, ast)
+            # Magic prefixes
+            if magic[1] == "?"
+                # Help mode
+                cmd = (:help, magic[2])
+            else
+                # Get and put variables between local & remote
+                ex = parse_input(magic[2])
+                if Meta.isexpr(ex, :toplevel)
+                    ex = Expr(:block, ex.args...)
+                    Base.remove_linenums!(ex)
+                    ex = only(ex.args)
+                end
+                if ex isa Symbol
+                    lhs = ex
+                    rhs = ex
+                elseif Meta.isexpr(ex, :(=))
+                    lhs = ex.args[1]
+                    rhs = ex.args[2]
+                else
+                    error("""Unrecognized command `$cmdstr`.
+                          Expected a symbol or assignment operator. For example
+                          %get x = y
+                          %put x
+                          """)
+                end
+                @assert magic[1] in ("%get", "%put")
+                if magic[1] == "%get"
+                    local_value = Main.eval(rhs)
+                    cmd = (:eval, :($lhs = $local_value))
+                elseif magic[1] == "%put"
+                    put_lhs = lhs
+                    cmd = (:eval_and_get, rhs)
+                end
+            end
         end
         messageid, value = send_message(conn, cmd)
         if messageid in (:eval_result, :help_result, :error)
@@ -164,11 +222,17 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
                     println(out_stream, value)
                 end
             end
+        elseif messageid == :eval_and_get_result
+            result, logstr = value
+            print(out_stream, logstr)
+            ex = :($put_lhs = $result)
+            result = Main.eval(:($put_lhs = $result))
+            return result
         else
             @error "Unexpected response from server" messageid
         end
+        nothing
     end
-    nothing
 end
 
 #-------------------------------------------------------------------------------
