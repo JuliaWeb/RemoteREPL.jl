@@ -13,7 +13,7 @@ process and run commands interactively:
 
 Read [**the latest documentation**](https://c42f.github.io/RemoteREPL.jl/dev) more information.
 
-(See [**docs on juliahub.com**](https://juliahub.com/docs/RemoteREPL)).
+(See also the [**docs on juliahub.com**](https://juliahub.com/docs/RemoteREPL)).
 
 ## Demo
 

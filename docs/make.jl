@@ -17,5 +17,6 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/c42f/RemoteREPL.jl",
+    devbranch="main",
     push_preview=true
 )
