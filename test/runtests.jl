@@ -111,6 +111,12 @@ try
             runcommand("?helpmodetest")
         end)
 
+    # Test the @remote macro
+    Main.eval(:(clientside_var = 0:41))
+    @test runcommand("serverside_var = 1 .+ @remote clientside_var") == "1:42\n"
+    @test Main.clientside_var == 0:41
+    @test @remote(conn, serverside_var) == 1:42
+
     # Copy variables or expressions between local and remote Main modules
     @test RemoteREPL.run_remote_repl_command(conn, IOBuffer(), "%put asdf") == 42
     @test Main.asdf == 42
