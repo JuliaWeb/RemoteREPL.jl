@@ -1,6 +1,6 @@
 module RemoteREPL
 
-export connect_repl, serve_repl
+export connect_repl, serve_repl, @remote
 
 # Technically, server and client could be completely separate packages, but
 # having them together seems simplest for now.

@@ -3,11 +3,34 @@ using REPL
 using Serialization
 using Sockets
 
+# Super dumb macro expander which expands calls to only a single macro
+# `macro_name` which is implemented as `func` taking the expressions passed to
+# the macro. Complexities which are ignored:
+#   * Hygiene / scoping - all symbols are non-hygenic
+#   * Nesting of macro expansions - `macro_name` is expanded first regardless
+#     of how it's nested within other macros in the source.
+function simple_macro_expand!(func, ex, macro_name)
+    if Meta.isexpr(ex, :macrocall) && ex.args[1] == macro_name
+        return func(ex.args[3:end]...)
+    elseif Meta.isexpr(ex, (:quote, :inert, :meta))
+        # pass
+    elseif ex isa Expr
+        map!(ex.args, ex.args) do x
+            simple_macro_expand!(func, x, macro_name)
+        end
+    end
+    return ex
+end
+
 # Read and verify header bytes on initializing the connection
 function verify_header(io, ser_version=Serialization.ser_version)
     magic = String(read(io, length(protocol_magic)))
     if magic != protocol_magic
-        error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(protocol_magic))")
+        if !isopen(io)
+            error("RemoteREPL stream was closed while reading header")
+        else
+            error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(protocol_magic))")
+        end
     end
     version = read(io, typeof(protocol_version))
     if version != protocol_version
@@ -44,7 +67,7 @@ function Connection(; host=Sockets.localhost, port::Integer=27754,
                     ssh_opts=``, region=nothing, namespace=nothing)
     conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing)
     setup_connection!(conn)
-    finalizer(close_connection!, conn)
+    finalizer(close, conn)
 end
 
 Base.isopen(conn::Connection) = !isnothing(conn.socket) && isopen(conn.socket)
@@ -74,7 +97,7 @@ function ensure_connected!(conn)
     end
 end
 
-function close_connection!(conn::Connection)
+function Base.close(conn::Connection)
     try
         if !isnothing(conn.socket) && isopen(conn.socket)
             serialize(conn.socket, (:exit,nothing))
@@ -93,7 +116,7 @@ function ensure_connected!(f::Function, conn::Connection; retries=1)
             return f()
         catch exc
             try
-                close_connection!(conn)
+                close(conn)
             catch
                 exc isa Base.IOError || rethrow()
             end
@@ -121,15 +144,10 @@ end
 function match_magic_syntax(str)
     if startswith(str, '?')
         return "?", str[2:end]
-    else
-        m = match(r"^(%get|%put)(?:[[:space:]]+(.*))?", str)
-        if isnothing(m)
-            return nothing
-        else
-            suffix = m[2]
-            return m[1], isnothing(suffix) ? "" : suffix
-        end
     end
+    # We previously matched %get and %put RemoteREPL magics, but those were
+    # removed in favour of `@remote`. Keeping `match_magic_syntax` for now in
+    # case we want other magic syntax in the future.
 end
 
 function valid_input_checker(prompt_state)
@@ -174,45 +192,27 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
 
         # Send actual command
         magic = match_magic_syntax(cmdstr)
-        put_lhs = nothing
         if isnothing(magic)
             # Normal remote evaluation
             ex = parse_input(cmdstr)
+
+            ex = simple_macro_expand!(ex, Symbol("@remote")) do clientside_ex
+                try
+                    # Any expressions wrapped in `@remote` need to be executed
+                    # on the client and wrapped in a QuoteNode to prevent them
+                    # being eval'd again in the expression on the server side.
+                    QuoteNode(Main.eval(clientside_ex))
+                catch _
+                    error("Error while evaluating `@remote($clientside_ex)` before passing to the server")
+                end
+            end
+
             cmd = (:eval, ex)
         else
             # Magic prefixes
             if magic[1] == "?"
                 # Help mode
                 cmd = (:help, magic[2])
-            else
-                # Get and put variables between local & remote
-                ex = parse_input(magic[2])
-                if Meta.isexpr(ex, :toplevel)
-                    ex = Expr(:block, ex.args...)
-                    Base.remove_linenums!(ex)
-                    ex = only(ex.args)
-                end
-                if ex isa Symbol
-                    lhs = ex
-                    rhs = ex
-                elseif Meta.isexpr(ex, :(=))
-                    lhs = ex.args[1]
-                    rhs = ex.args[2]
-                else
-                    error("""Unrecognized command `$cmdstr`.
-                          Expected a symbol or assignment operator. For example
-                          %get x = y
-                          %put x
-                          """)
-                end
-                @assert magic[1] in ("%get", "%put")
-                if magic[1] == "%get"
-                    local_value = Main.eval(rhs)
-                    cmd = (:eval, :($lhs = $local_value))
-                elseif magic[1] == "%put"
-                    put_lhs = lhs
-                    cmd = (:eval_and_get, rhs)
-                end
             end
         end
         messageid, value = send_message(conn, cmd)
@@ -222,12 +222,6 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
                     println(out_stream, value)
                 end
             end
-        elseif messageid == :eval_and_get_result
-            result, logstr = value
-            print(out_stream, logstr)
-            ex = :($put_lhs = $result)
-            result = Main.eval(:($put_lhs = $result))
-            return result
         else
             @error "Unexpected response from server" messageid
         end
@@ -235,8 +229,25 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
     end
 end
 
+remote_eval_and_fetch(::Nothing, ex) = error("No remote connection is active")
+
+function remote_eval_and_fetch(conn::Connection, ex)
+    ensure_connected!(conn) do
+        cmd = (:eval_and_get, ex)
+        messageid, value = send_message(conn, cmd)
+        if messageid != :eval_and_get_result
+            error("Unexpected response message id $messageid from server")
+        end
+        # TODO: value[2] is the log stream results. What do we do with those?
+        return value[1]
+    end
+end
+
 #-------------------------------------------------------------------------------
 # Public client APIs
+
+# Connection which is currently attached to the REPL mode.
+_repl_client_connection = nothing
 
 """
     connect_repl([host=localhost,] port::Integer=27754;
@@ -251,8 +262,10 @@ that `host` needs to be running an ssh server and you need ssh credentials set
 up for use on that host. For secure networks this can be disabled by setting
 `tunnel=:none`.
 
-To provide extra options to SSH, you may use the `ssh_opts` keyword, for example an identity file may be set with  `` ssh_opts = `-i /path/to/identity.pem` ``.
-Alternatively, you may want to set this up permanently using a `Host` section in your ssh config file.
+To provide extra options to SSH, you may use the `ssh_opts` keyword, for
+example an identity file may be set with ```ssh_opts = `-i /path/to/identity.pem` ```.
+Alternatively, you may want to set this up permanently using a `Host` section
+in your ssh config file.
 
 You can also use the following technologies for tunneling in place of SSH:
 1) AWS Session Manager: set `tunnel=:aws`. The optional `region` keyword argument can be used to specify the AWS Region of your server.
@@ -263,6 +276,16 @@ See README.md for more information.
 function connect_repl(host=Sockets.localhost, port::Integer=27754;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
                       ssh_opts=``, region=nothing, namespace=nothing)
+    global _repl_client_connection
+
+    if !isnothing(_repl_client_connection)
+        try
+            close(_repl_client_connection)
+        catch exc
+            @warn "Exception closing connection" exception=(exc,catch_backtrace())
+        end
+    end
+
     conn = Connection(host=host, port=port, tunnel=tunnel,
                       ssh_opts=ssh_opts, region=region, namespace=namespace)
     out_stream = stdout
@@ -276,10 +299,57 @@ function connect_repl(host=Sockets.localhost, port::Integer=27754;
                        mode_name    = "remote_repl",
                        completion_provider = RemoteCompletionProvider(conn)
                        )
+    # Record the connection which is attached to the REPL
+    _repl_client_connection = conn
+
     nothing
 end
 
 connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
+
+"""
+    @remote ex
+
+Execute expression `ex` on the other side of the current RemoteREPL connection
+and return the value.
+
+This can be used in both directions:
+1. From the normal `julia>` prompt, execute `ex` on the remote server and
+   return the value to the client.
+2. From the `remote>` prompt, execute `ex` on the *client* and push the
+   resulting value to the remote server.
+
+# Examples
+
+Push a value from the client to the server:
+
+```
+julia> client_val = 1:100;
+
+remote> server_val = @remote client_val
+1:100
+```
+
+Fetch a pair of variables `(x,y)` from the server, and plot them on the client
+with a single line:
+```
+# In two lines
+julia> x,y = @remote (x, y)
+       plot(x, y)
+
+# Or as a single expression
+julia> plot(@remote((x, y))...)
+```
+"""
+macro remote(ex)
+    _remote_expr(:_repl_client_connection, ex)
+end
+
+macro remote(conn, ex)
+    _remote_expr(esc(conn), ex)
+end
+
+_remote_expr(conn, ex) = :(remote_eval_and_fetch($conn, $(QuoteNode(ex))))
 
 #--------------------------------------------------
 """
@@ -302,7 +372,7 @@ function remote_eval(host, port::Integer, cmdstr::AbstractString;
     setup_connection!(conn)
     io = IOBuffer()
     run_remote_repl_command(conn, io, cmdstr)
-    close_connection!(conn)
+    close(conn)
     String(take!(io))
 end
 
