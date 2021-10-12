@@ -262,8 +262,10 @@ that `host` needs to be running an ssh server and you need ssh credentials set
 up for use on that host. For secure networks this can be disabled by setting
 `tunnel=:none`.
 
-To provide extra options to SSH, you may use the `ssh_opts` keyword, for example an identity file may be set with  `` ssh_opts = `-i /path/to/identity.pem` ``.
-Alternatively, you may want to set this up permanently using a `Host` section in your ssh config file.
+To provide extra options to SSH, you may use the `ssh_opts` keyword, for
+example an identity file may be set with ```ssh_opts = `-i /path/to/identity.pem` ```.
+Alternatively, you may want to set this up permanently using a `Host` section
+in your ssh config file.
 
 You can also use the following technologies for tunneling in place of SSH:
 1) AWS Session Manager: set `tunnel=:aws`. The optional `region` keyword argument can be used to specify the AWS Region of your server.
