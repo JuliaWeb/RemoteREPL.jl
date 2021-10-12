@@ -2,21 +2,16 @@
 
 ## REPL syntax
 
-RemoteREPL syntax is just normal julia REPL syntax with minor additions:
-
-* `?expr` produces help for `expr`. This is just like the normal REPL, but we
-  don't have a separate help mode.
-* `%get lhs = rhs` evaluates `rhs` on the client and assigns to `lhs` on the
-  remote server.
-* `%put lhs = rhs` evaluates `rhs` on the server and assigns to `lhs` on the
-  client.
-* `%get x` is shorthand for `%get x = x`, and similarly for `%put`.
+RemoteREPL syntax is just normal Julia REPL syntax, the only minor difference
+is that `?expr` produces help for `expr`, but we don't have a separate help
+mode for this.
 
 ## API reference
 
 ```@docs
 connect_repl
 serve_repl
+RemoteREPL.@remote
 RemoteREPL.remote_eval
 ```
 

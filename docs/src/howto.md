@@ -1,6 +1,6 @@
 # How-To
 
-## Connecting to a remote machine
+## Connect to a remote server
 
 Connecting to a remote machine goes via an SSH tunnel by default.
 
@@ -18,47 +18,19 @@ Connecting to a remote machine goes via an SSH tunnel by default.
 3. Start a separate Julia process B on the client and call
    `connect_repl("your.host.example")`.
 
-## Transfer variables
+## Plot variables from the server
 
-Variable values can be transferred between server and client with the special
-syntax `%put` and `%get`:
+The [`@remote`](@ref) macro can be used to get variables from the server and
+plot them on the client with a single line of code. For example:
 
-* Transfer a value from a variable `x` on the server and assign it to the name
-  `x` on the client:
-  ```julia
-  remote> x = 42;
+```julia
+remote> x = 1:42; y = x.^2;
 
-  remote> %put x
-  42
+julia> plot(@remote((x,y))...)
+```
 
-  julia> x
-  42
-  ```
 
-* Transfer a variable to the server under a new name
-  ```julia
-  julia> y = 101;
-
-  remote> %get z = y
-  101
-  ```
-
-* More general expressions on the right and left hand sides also work:
-  ```julia
-  remote> x = [1,2];
-
-  remote> %put y = x .+ 1
-  2-element Vector{Int64}:
-   2
-   3
-
-  remote> %put a,b = x
-  2-element Vector{Int64}:
-   1
-   2
-  ```
-
-## Alternatives to SSH
+## Use alternatives to SSH
 
 ### AWS Session Manager
 

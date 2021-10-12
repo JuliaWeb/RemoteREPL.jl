@@ -8,7 +8,7 @@ process and run commands interactively:
 
 * Run code in the `Main` module of a remote Julia process
 * Standard REPL tab completion and help mode with `?`
-* Transfer variables between processes with `%get` and `%put`
+* Transfer variables between processes with `@remote`
 * Automatic ssh tunnel for network security. Reconnects dropped connections.
 
 Read [**the latest documentation**](https://c42f.github.io/RemoteREPL.jl/dev) more information.

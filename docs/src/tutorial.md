@@ -34,28 +34,32 @@ julia> x
 123
 ```
 
-## Transfer variables between client and server
+## Transferring variables
 
 Normally RemoteREPL shows you a string-based summary of variables, but the
 actual Julia values are held in the remote process. Sometimes it's useful to
 transfer these to the client to make use of graphical utilities like plotting
 or other resources which you need a local copy of the object for. This can be
-done with the RemoteREPL `%get` and `%put` syntax:
+done with the RemoteREPL [`@remote`](@ref) macro which executes an expression
+on the "other side" of the current remote connection.
 
-Transfer the value from a variable `x` on the server and assign it to the name
-`x` on the client. In process B from the previous tutorial, run
+Transfer the value from a variable `x` on the client to the variable `y` on the
+server:
 
 ```julia
-remote> y = 42;
+julia> x = [1,2];
 
-remote> %put y
-42
+remote> y = @remote(x)
+2-element Vector{Int64}:
+ 1
+ 2
 ```
 
-Now switching back to the local REPL (press backspace), you can see the value
-of `y` has been set locally.
+Transfer arrays `x` and `y` from the server and plot them on the client:
 
 ```julia
-julia> y
-42
+remote> x = 1:42; y = x.^2;
+
+julia> a, b = @remote (x,y)
+       plot(a, b)
 ```

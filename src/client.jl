@@ -360,15 +360,6 @@ This can be used in both directions:
 
 # Examples
 
-Fetch a value from the server to the client:
-
-```
-remote> server_val = 1:10;
-
-julia> client_val = @remote server_val
-1:10
-```
-
 Push a value from the client to the server:
 
 ```
