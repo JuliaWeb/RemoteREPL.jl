@@ -117,15 +117,6 @@ try
     @test Main.clientside_var == 0:41
     @test @remote(conn, serverside_var) == 1:42
 
-    # Copy variables or expressions between local and remote Main modules
-    @test RemoteREPL.run_remote_repl_command(conn, IOBuffer(), "%put asdf") == 42
-    @test Main.asdf == 42
-    @test RemoteREPL.run_remote_repl_command(conn, IOBuffer(), "%put qwer = asdf + 1") == 43
-    @test Main.qwer == 43
-    Main.eval(:(to_transfer = 102))
-    @test runcommand("%get to_transfer") == "102\n"
-    @test runcommand("to_transfer") == "102\n"
-
     # Execute a single command on a separate connection
     @test RemoteREPL.remote_eval(test_interface, test_port, "asdf") == "42\n"
 end
