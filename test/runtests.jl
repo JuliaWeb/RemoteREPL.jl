@@ -85,10 +85,14 @@ try
     #
     # More full testing of the client code would requires some tricky mocking
     # of the REPL environment.
-    runcommand(cmdstr) = sprint(io->RemoteREPL.run_remote_repl_command(conn, io, cmdstr))
+    function runcommand(cmdstr)
+        result = RemoteREPL.run_remote_repl_command(conn, IOBuffer(), cmdstr)
+        # Unwrap Text for testing purposes
+        return result isa Text ? result.content : result
+    end
 
-    @test runcommand("asdf = 42") == "42\n"
-    @test runcommand("Main.asdf") == "42\n"
+    @test runcommand("asdf = 42") == "42"
+    @test runcommand("Main.asdf") == "42"
     @test !isdefined(Main, :asdf) # asdf not defined locally
 
     # Output Limiting
@@ -101,7 +105,7 @@ try
     @test occursin(r"Info:.*xxx"s, runcommand("""@info "hi" xxx=[1,2]"""))
 
     # Semicolon suppresses output
-    @test runcommand("asdf;") == ""
+    @test isnothing(runcommand("asdf;"))
 
     # Help mode
     @test occursin("helpmodetest documentation!",
@@ -113,12 +117,12 @@ try
 
     # Test the @remote macro
     Main.eval(:(clientside_var = 0:41))
-    @test runcommand("serverside_var = 1 .+ @remote clientside_var") == "1:42\n"
+    @test runcommand("serverside_var = 1 .+ @remote clientside_var") == "1:42"
     @test Main.clientside_var == 0:41
     @test @remote(conn, serverside_var) == 1:42
 
     # Execute a single command on a separate connection
-    @test RemoteREPL.remote_eval(test_interface, test_port, "asdf") == "42\n"
+    @test (RemoteREPL.remote_eval(test_interface, test_port, "asdf")::Text).content == "42"
 end
 
 finally
