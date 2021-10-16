@@ -216,16 +216,19 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
             end
         end
         messageid, value = send_message(conn, cmd)
+        result_for_display = nothing
         if messageid in (:eval_result, :help_result, :error)
             if !isnothing(value)
                 if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
-                    println(out_stream, value)
+                    result_for_display = Text(value)
                 end
             end
+        elseif messageid == :connection_failure
+            error()
         else
             @error "Unexpected response from server" messageid
         end
-        nothing
+        return result_for_display
     end
 end
 
@@ -357,7 +360,8 @@ _remote_expr(conn, ex) = :(remote_eval_and_fetch($conn, $(QuoteNode(ex))))
     remote_eval(host, port, cmdstr)
 
 Parse a string `cmdstr`, evaluate it in the remote REPL server's `Main` module,
-then close the connection.
+then close the connection. Returns the result which the REPL would normally
+pass to `show()` (likely a `Text` object).
 
 For example, to cause the remote Julia instance to exit, you could use
 
@@ -369,11 +373,14 @@ RemoteREPL.remote_eval("exit()")
 function remote_eval(host, port::Integer, cmdstr::AbstractString;
                      tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none)
     conn = Connection(; host=host, port=port, tunnel=tunnel)
-    setup_connection!(conn)
-    io = IOBuffer()
-    run_remote_repl_command(conn, io, cmdstr)
-    close(conn)
-    String(take!(io))
+    local result
+    try
+        setup_connection!(conn)
+        result = run_remote_repl_command(conn, IOBuffer(), cmdstr)
+    finally
+        close(conn)
+    end
+    return result
 end
 
 function remote_eval(cmdstr::AbstractString)

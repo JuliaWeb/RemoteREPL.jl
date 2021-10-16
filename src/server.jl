@@ -9,15 +9,17 @@ function send_header(io, ser_version=Serialization.ser_version)
     flush(io)
 end
 
-# Format result of arbitrary type as a string for transmission.
-# Stringifying everything may seem strange, but is beneficial because
+# Like `sprint()`, but uses IOContext properties `ctx_properties`
+#
+# This is used to stringify results before sending to the client. This is
+# beneficial because:
 #   * It allows us to show the user-defined types which exist only on the
 #     remote server
 #   * It allows us to limit the amount of data transmitted (eg, large arrays
 #     are truncated when the :limit IOContext property is set)
-function format_result(f, display_properties)
+function sprint_ctx(f, ctx_properties)
     io = IOBuffer()
-    ctx = IOContext(io, display_properties...)
+    ctx = IOContext(io, ctx_properties...)
     f(ctx)
     String(take!(io))
 end
@@ -31,47 +33,43 @@ function serve_repl_session(socket)
         response = nothing
         try
             @debug "Client command" request
-            messageid,value = request isa Tuple && length(request) == 2 ?
-                            request : (nothing,nothing)
-            if messageid == :eval
-                resultval = format_result(display_properties) do io
-                    result = with_logger(ConsoleLogger(io)) do
-                        Main.eval(value)
-                    end
-                    if !isnothing(result)
-                        show(io, MIME"text/plain"(), result)
-                    end
-                end
-                response = (:eval_result, resultval)
-            elseif messageid == :eval_and_get
+            messageid, messagebody = request isa Tuple && length(request) == 2 ?
+                                      request : (nothing,nothing)
+            if messageid in (:eval, :eval_and_get)
                 result = nothing
-                logstr = format_result(display_properties) do io
-                    result = with_logger(ConsoleLogger(io)) do
-                        Main.eval(value)
+                resultstr = sprint_ctx(display_properties) do io
+                    with_logger(ConsoleLogger(io)) do
+                        result = Main.eval(messagebody)
+                        if messageid === :eval && !isnothing(result)
+                            show(io, MIME"text/plain"(), result)
+                        end
                     end
                 end
-                response = (:eval_and_get_result, (result, logstr))
-            elseif messageid == :help
-                resultval = format_result(display_properties) do io
-                    md = Main.eval(REPL.helpmode(io, value))
+                response = messageid === :eval ?
+                    (:eval_result, resultstr) :
+                    (:eval_and_get_result, (result, resultstr))
+            elseif messageid === :help
+                resultstr = sprint_ctx(display_properties) do io
+                    md = Main.eval(REPL.helpmode(io, messagebody))
                     show(io, MIME"text/plain"(), md)
                 end
-                response = (:help_result, resultval)
-            elseif messageid == :display_properties
-                @debug "Got client display properties" display_properties
-                display_properties = value::Dict
-            elseif messageid == :repl_completion
+                response = (:help_result, resultstr)
+            elseif messageid === :display_properties
+                display_properties = messagebody::Dict
+            elseif messageid === :repl_completion
                 # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
-                partial, full = value
+                partial, full = messagebody
                 ret, range, should_complete = REPL.completions(full, lastindex(partial))
                 result = (unique!(map(REPL.completion_text, ret)),
                           partial[range], should_complete)
                 response = (:completion_result, result)
-            elseif messageid == :exit
+            elseif messageid === :exit
                 break
+            else
+                response = (:error, "Unknown message id: $messageid")
             end
         catch _
-            resultval = format_result(display_properties) do io
+            resultval = sprint_ctx(display_properties) do io
                 Base.display_error(io, Base.catch_stack())
             end
             response = (:error, resultval)
