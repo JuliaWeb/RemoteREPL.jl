@@ -4,7 +4,7 @@ using REPL
 using Logging
 
 function send_header(io, ser_version=Serialization.ser_version)
-    write(io, protocol_magic, protocol_version)
+    write(io, PROTOCOL_MAGIC, PROTOCOL_VERSION)
     write(io, UInt32(ser_version))
     flush(io)
 end
@@ -82,7 +82,7 @@ end
 
 
 """
-    serve_repl([address=Sockets.localhost,] port=27754)
+    serve_repl([address=Sockets.localhost,] port=$DEFAULT_PORT)
     serve_repl(server)
 
 Start a REPL server listening on interface `address` and `port`. In normal
@@ -99,10 +99,10 @@ server lifetime.
 
 `serve_repl()` uses an *unauthenticated, unecrypted protocol* so it should not
 be used on open networks or multi-user machines where other users aren't
-trused. For open networks, use the default `address=Sockets.localhost` and the
+trusted. For open networks, use the default `address=Sockets.localhost` and the
 automatic ssh tunnel support provided by the client-side `connect_repl()`.
 """
-function serve_repl(address=Sockets.localhost, port::Integer=27754)
+function serve_repl(address=Sockets.localhost, port::Integer=DEFAULT_PORT)
     server = listen(address, port)
     try
         serve_repl(server)
