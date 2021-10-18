@@ -1,6 +1,7 @@
 using RemoteREPL
 using Test
 using Sockets
+using RemoteREPL: repl_prompt_text, DEFAULT_PORT
 
 ENV["JULIA_DEBUG"] = "RemoteREPL"
 
@@ -13,12 +14,12 @@ ENV["JULIA_DEBUG"] = "RemoteREPL"
 
     # Broken magic number
     io = IOBuffer()
-    write(io, "BrokenMagic", RemoteREPL.protocol_version)
+    write(io, "BrokenMagic", RemoteREPL.PROTOCOL_VERSION)
     seek(io, 0)
     @test_throws ErrorException RemoteREPL.verify_header(io)
     # Version mismatch
     io = IOBuffer()
-    write(io, RemoteREPL.protocol_version, typemax(UInt32))
+    write(io, RemoteREPL.PROTOCOL_VERSION, typemax(UInt32))
     seek(io, 0)
     @test_throws ErrorException RemoteREPL.verify_header(io)
 
@@ -29,6 +30,21 @@ ENV["JULIA_DEBUG"] = "RemoteREPL"
         RemoteREPL.send_header(io, remote_ver)
         @test_throws ErrorException RemoteREPL.verify_header(io, local_ver)
     end
+end
+
+@testset "Prompt text" begin
+    function fake_conn(host, port; is_open=true)
+        io = IOBuffer()
+        is_open || close(io)
+        RemoteREPL.Connection(host, port, nothing, nothing, nothing, nothing, io)
+    end
+    @test repl_prompt_text(fake_conn(Sockets.localhost, DEFAULT_PORT)) == "julia@localhost> "
+    @test repl_prompt_text(fake_conn("localhost",       DEFAULT_PORT)) == "julia@localhost> "
+    @test repl_prompt_text(fake_conn(ip"192.168.1.1",   DEFAULT_PORT)) == "julia@192.168.1.1> "
+
+    @test repl_prompt_text(fake_conn("ABC", DEFAULT_PORT)) == "julia@ABC> "
+    @test repl_prompt_text(fake_conn("ABC", 12345))        == "julia@ABC:12345> "
+    @test repl_prompt_text(fake_conn("ABC", DEFAULT_PORT, is_open=false)) == "julia@ABC [disconnected]> "
 end
 
 # Connect to a non-default loopback address to test SSH integration

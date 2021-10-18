@@ -24,17 +24,17 @@ end
 
 # Read and verify header bytes on initializing the connection
 function verify_header(io, ser_version=Serialization.ser_version)
-    magic = String(read(io, length(protocol_magic)))
-    if magic != protocol_magic
+    magic = String(read(io, length(PROTOCOL_MAGIC)))
+    if magic != PROTOCOL_MAGIC
         if !isopen(io)
             error("RemoteREPL stream was closed while reading header")
         else
-            error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(protocol_magic))")
+            error("RemoteREPL protocol magic number mismatch: $(repr(magic)) != $(repr(PROTOCOL_MAGIC))")
         end
     end
-    version = read(io, typeof(protocol_version))
-    if version != protocol_version
-        error("RemoteREPL protocol version number mismatch: $version != $protocol_version")
+    version = read(io, typeof(PROTOCOL_VERSION))
+    if version != PROTOCOL_VERSION
+        error("RemoteREPL protocol version number mismatch: $version != $PROTOCOL_VERSION")
     end
     # Version 1: We rely on the standard Serialization library for simplicity;
     # that's backward but not forward compatible depending on
@@ -62,7 +62,7 @@ mutable struct Connection
     socket
 end
 
-function Connection(; host=Sockets.localhost, port::Integer=27754,
+function Connection(; host=Sockets.localhost, port::Integer=DEFAULT_PORT,
                     tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
                     ssh_opts=``, region=nothing, namespace=nothing)
     conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing)
@@ -244,6 +244,13 @@ function remote_eval_and_fetch(conn::Connection, ex)
     end
 end
 
+function repl_prompt_text(conn::Connection)
+    host = conn.host == Sockets.localhost ? "localhost" : conn.host
+    port = conn.port == DEFAULT_PORT ? "" : ":$(conn.port)"
+    disconnected = isopen(conn) ? "" : " [disconnected]"
+    return "julia@$host$port$disconnected> "
+end
+
 #-------------------------------------------------------------------------------
 # Public client APIs
 
@@ -251,8 +258,8 @@ end
 _repl_client_connection = nothing
 
 """
-    connect_repl([host=localhost,] port::Integer=27754;
-                 use_ssh_tunnel = (host != localhost),
+    connect_repl([host=localhost,] port::Integer=$DEFAULT_PORT;
+                 use_ssh_tunnel = (host != localhost) ? :ssh : :none,
                  ssh_opts = ``)
 
 Connect client REPL to a remote `host` on `port`. This is then accessible as a
@@ -269,12 +276,14 @@ Alternatively, you may want to set this up permanently using a `Host` section
 in your ssh config file.
 
 You can also use the following technologies for tunneling in place of SSH:
-1) AWS Session Manager: set `tunnel=:aws`. The optional `region` keyword argument can be used to specify the AWS Region of your server.
-2) kubectl: set `tunnel=:k8s`. The optional `namespace` keyword argument can be used to specify the namespace of your Kubernetes resource.
+1) AWS Session Manager: set `tunnel=:aws`. The optional `region` keyword
+   argument can be used to specify the AWS Region of your server.
+2) kubectl: set `tunnel=:k8s`. The optional `namespace` keyword argument can be
+   used to specify the namespace of your Kubernetes resource.
 
 See README.md for more information.
 """
-function connect_repl(host=Sockets.localhost, port::Integer=27754;
+function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
                       ssh_opts=``, region=nothing, namespace=nothing)
     global _repl_client_connection
@@ -293,7 +302,7 @@ function connect_repl(host=Sockets.localhost, port::Integer=27754;
     ReplMaker.initrepl(c->run_remote_repl_command(conn, out_stream, c),
                        repl         = Base.active_repl,
                        valid_input_checker = valid_input_checker,
-                       prompt_text  = "remote> ",
+                       prompt_text  = ()->repl_prompt_text(conn),
                        prompt_color = :magenta,
                        start_key    = '>',
                        sticky_mode  = true,
@@ -382,5 +391,5 @@ function remote_eval(host, port::Integer, cmdstr::AbstractString;
 end
 
 function remote_eval(cmdstr::AbstractString)
-    remote_eval(Sockets.localhost, 27754, cmdstr)
+    remote_eval(Sockets.localhost, DEFAULT_PORT, cmdstr)
 end
