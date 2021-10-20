@@ -3,6 +3,16 @@ using REPL
 using Serialization
 using Sockets
 
+struct RemoteException <: Exception
+    msg::String
+end
+
+function Base.showerror(io::IO, e::RemoteException)
+    # Here, we presume that e.msg is fully formatted.
+    indented_msg = join("  " .* split(e.msg, '\n'), '\n')
+    print(io, "RemoteException:\n", indented_msg)
+end
+
 # Super dumb macro expander which expands calls to only a single macro
 # `macro_name` which is implemented as `func` taking the expressions passed to
 # the macro. Complexities which are ignored:
@@ -115,6 +125,10 @@ function ensure_connected!(f::Function, conn::Connection; retries=1)
             ensure_connected!(conn)
             return f()
         catch exc
+            if exc isa RemoteException
+                # This is an expected error - do not retry
+                rethrow()
+            end
             try
                 close(conn)
             catch
@@ -236,11 +250,18 @@ function remote_eval_and_fetch(conn::Connection, ex)
     ensure_connected!(conn) do
         cmd = (:eval_and_get, ex)
         messageid, value = send_message(conn, cmd)
-        if messageid != :eval_and_get_result
+        if messageid == :eval_and_get_result
+            logstring = value[2]
+            if !isempty(logstring)
+                # TODO: Improve this with an async remote logger
+                @info Text("Remote logs\n" * logstring)
+            end
+            return value[1]
+        elseif messageid == :error
+            throw(RemoteException(value))
+        else
             error("Unexpected response message id $messageid from server")
         end
-        # TODO: value[2] is the log stream results. What do we do with those?
-        return value[1]
     end
 end
 
