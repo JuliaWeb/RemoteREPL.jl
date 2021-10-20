@@ -136,7 +136,7 @@ function ensure_connected!(f::Function, conn::Connection; retries=1)
             end
             if n_try == retries+1
                 @error "Network or internal error running remote repl" exception=exc,catch_backtrace()
-                return (:connection_failure, nothing)
+                return nothing
             end
             n_try += 1
         end
@@ -184,13 +184,13 @@ function REPL.complete_line(provider::RemoteCompletionProvider,
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
-    messageid, value = ensure_connected!(provider.connection) do
+    result = ensure_connected!(provider.connection) do
         send_message(provider.connection, (:repl_completion, (partial, full)))
     end
-    if messageid != :completion_result
+    if isnothing(result) || result[1] != :completion_result
         return ([], "", false)
     end
-    return value
+    return result[2]
 end
 
 function run_remote_repl_command(conn, out_stream, cmdstr)
