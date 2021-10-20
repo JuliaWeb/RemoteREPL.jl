@@ -285,7 +285,8 @@ See README.md for more information.
 """
 function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
-                      ssh_opts=``, region=nothing, namespace=nothing)
+                      ssh_opts=``, region=nothing, namespace=nothing,
+                      startup_text=true)
     global _repl_client_connection
 
     if !isnothing(_repl_client_connection)
@@ -307,7 +308,8 @@ function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                        start_key    = '>',
                        sticky_mode  = true,
                        mode_name    = "remote_repl",
-                       completion_provider = RemoteCompletionProvider(conn)
+                       completion_provider = RemoteCompletionProvider(conn),
+                       startup_text = startup_text
                        )
     # Record the connection which is attached to the REPL
     _repl_client_connection = conn

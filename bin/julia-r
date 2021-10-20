@@ -1,0 +1,17 @@
+#!/bin/bash
+#=
+exec julia -q -i --startup-file=no -e 'include(popfirst!(ARGS))' "$0" "$@"
+=#
+
+using RemoteREPL, Sockets
+@async try
+    # Wait for main REPL to initialize
+    while !isdefined(Base, :active_repl)
+        sleep(0.1)
+    end
+    host = length(ARGS) >= 1 ? ARGS[1] : Sockets.localhost
+    connect_repl(host, startup_text=false)
+    println("\n\nConnected to $host. Press `⏎` and `>` to enter remote REPL.")
+catch exc
+    @error "could not connect" exception=exc
+end
