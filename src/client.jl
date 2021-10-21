@@ -125,8 +125,7 @@ function ensure_connected!(f::Function, conn::Connection; retries=1)
             ensure_connected!(conn)
             return f()
         catch exc
-            if exc isa RemoteException
-                # This is an expected error - do not retry
+            if exc isa RemoteException || exc isa InterruptException
                 rethrow()
             end
             try
@@ -237,7 +236,43 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
                 cmd = (:help, magic[2])
             end
         end
-        messageid, value = send_message(conn, cmd)
+        # Big hack: we enable raw mode while sending the eval command, so we
+        # can intercept control-C interrupts
+        terminal = Base.active_repl.t
+        messageid, value = @sync begin
+            response = Channel(1)
+            @async try
+                put!(response, send_message(conn, cmd))
+                lock(terminal.in_stream.cond) do
+                    notify(terminal.in_stream.cond)
+                end
+            catch exc
+                @error "" exception=exc,catch_backtrace()
+                close(response)
+            finally
+                close(response)
+            end
+            REPL.Terminals.raw!(terminal, true)
+            try
+                read_terminating_char = false
+                while Base.n_avail(response) == 0 && isopen(response)
+                    try_wait_readnb(terminal.in_stream, 1)
+                    if bytesavailable(terminal) > 0
+                        byte = only(read(terminal, 1))
+                        Core.println("Read byte:", byte)
+                        if byte == 0x03 # control-C
+                            # FIXME: locks?
+                            send_message(conn, (:interrupt, nothing), read_response=false)
+                        elseif byte == 0x64
+                            read_terminating_char = true
+                        end
+                    end
+                end
+            finally
+                REPL.Terminals.raw!(terminal, false)
+            end
+            take!(response)
+        end
         result_for_display = nothing
         if messageid in (:eval_result, :help_result, :error)
             if !isnothing(value)

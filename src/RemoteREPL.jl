@@ -8,6 +8,7 @@ const PROTOCOL_VERSION = UInt32(1)
 
 const STDOUT_PLACEHOLDER = Symbol("#RemoteREPL_STDOUT_PLACEHOLDER")
 
+include("utils.jl")
 include("tunnels.jl")
 include("server.jl")
 include("client.jl")

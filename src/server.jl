@@ -89,7 +89,9 @@ function run_remote_repl_backend(eval_input, eval_output)
             result = handle_message(display_properties, request...)
             put!(eval_output, result)
         catch exc
-            if exc isa InvalidStateException && !isopen(eval_input)
+            if exc isa InterruptException
+                continue
+            elseif exc isa InvalidStateException && !isopen(eval_input)
                 break
             else
                 rethrow()
@@ -128,6 +130,7 @@ function run_remote_repl_frontend(socket, repl_backend, eval_input, eval_output)
                 if messageid === :exit
                     break
                 elseif messageid == :interrupt
+                    @info "Got interrupt!"
                     # Soft interrupt - this will only work if the
                     # `repl_backend` task yields.  It won't work if
                     # `repl_backend` is executing a compute-heavy task
@@ -136,6 +139,7 @@ function run_remote_repl_frontend(socket, repl_backend, eval_input, eval_output)
                 else
                     # All other messages are handled in the backend
                     put!(eval_input, request)
+                    # FIXME: Cannot do this synchronously!
                     response = take!(eval_output)
                 end
             else
@@ -152,8 +156,8 @@ end
 function serve_repl_session(socket)
     send_header(socket)
     @sync begin
-        eval_input = Channel(1)
-        eval_output = Channel(1)
+        eval_input = Channel(10)
+        eval_output = Channel(10)
 
         repl_backend = @async try
             run_remote_repl_backend(eval_input, eval_output)
