@@ -1,22 +1,33 @@
 # How-To
 
-## Connect to a remote server
+## Serve a REPL from a remote server
 
-Connecting to a remote machine goes via an SSH tunnel by default.
+1. Run an ssh server on `your.example.host` and perform the usual ssh setup.
+   (For example, add your public key to `~/.ssh/authorized_keys` on the server.)
+2. Your Julia server should call `serve_repl()`. Use `@async serve_repl()` if
+   you'd like to run other server tasks concurrently.
 
-1. Ensure you have an ssh server running on `your.host.example` and can login
-   normally using ssh. If you've got some particular credentials or ssh options
-   needed for `your.host`, you'll probably find it convenient to set these up in
-   your openSSH config file (`~/.ssh/config` on unix). For example,
+## Connect to a REPL on a remote server
+
+1. Set up passwordless ssh to your server. Usually this means you have
+   `ssh-agent` running with your private key loaded. If you've got some
+   particular ssh options needed for the server, you'll find it convenient to
+   set these up in the OpenSSH config file (`~/.ssh/config` on unix). For
+   example,
    ```ssh-config
-   Host your.host.example
-       User ubuntu
-       IdentityFile ~/.ssh/some_identity
+   Host your.example.host
+      User ubuntu
+      IdentityFile ~/.ssh/some_identity
    ```
-2. Start a Julia process A on the server and call `serve_repl()`. Use
-   `@async serve_repl()` if you'd like to run other work concurrently.
-3. Start a separate Julia process B on the client and call
-   `connect_repl("your.host.example")`.
+2. Start up Julia and run the code
+   ```julia
+   using RemoteREPL; connect_repl("your.example.host")
+   ```
+   Alternatively use the shell wrapper script `RemoteREPL/bin/julia-r`:
+   ```bash
+   julia-r your.example.host
+   ```
+
 
 ## Plot variables from the server
 
