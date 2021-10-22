@@ -19,7 +19,7 @@ julia> using RemoteREPL
 julia> connect_repl()
 REPL mode remote_repl initialized. Press > to enter and backspace to exit.
 
-remote> x = 123
+julia@localhost> x = 123
 123
 ```
 
@@ -49,7 +49,7 @@ server:
 ```julia
 julia> x = [1,2];
 
-remote> y = @remote(x)
+julia@localhost> y = @remote(x)
 2-element Vector{Int64}:
  1
  2
@@ -58,7 +58,7 @@ remote> y = @remote(x)
 Transfer arrays `x` and `y` from the server and plot them on the client:
 
 ```julia
-remote> x = 1:42; y = x.^2;
+julia@localhost> x = 1:42; y = x.^2;
 
 julia> a, b = @remote (x,y)
        plot(a, b)

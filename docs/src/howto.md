@@ -35,7 +35,7 @@ The [`@remote`](@ref) macro can be used to get variables from the server and
 plot them on the client with a single line of code. For example:
 
 ```julia
-remote> x = 1:42; y = x.^2;
+julia@your.host> x = 1:42; y = x.^2;
 
 julia> plot(@remote((x,y))...)
 ```
