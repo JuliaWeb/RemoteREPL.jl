@@ -11,6 +11,10 @@ using RemoteREPL, Sockets
     end
     host = length(ARGS) >= 1 ? ARGS[1] : Sockets.localhost
     connect_repl(host, startup_text=false)
+    # Run one command as part of connection setup to trigger compilation
+    RemoteREPL.run_remote_repl_command(RemoteREPL._repl_client_connection,
+                                       stdout,
+                                       "\"hi\"")
     println("\n\nConnected to $host. Press `⏎` and `>` to enter remote REPL.")
 catch exc
     @error "could not connect" exception=exc
