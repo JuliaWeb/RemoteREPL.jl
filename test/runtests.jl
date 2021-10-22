@@ -136,6 +136,7 @@ try
     @test runcommand("serverside_var = 1 .+ @remote clientside_var") == "1:42"
     @test Main.clientside_var == 0:41
     @test @remote(conn, serverside_var) == 1:42
+    @test_throws RemoteREPL.RemoteException @remote(conn, error("hi"))
 
     # Execute a single command on a separate connection
     @test (RemoteREPL.remote_eval(test_interface, test_port, "asdf")::Text).content == "42"
