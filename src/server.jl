@@ -24,6 +24,18 @@ function sprint_ctx(f, ctx_properties)
     String(take!(io))
 end
 
+# Server-side expression processing
+function preprocess_expression!(ex, new_stdout)
+    if ex isa Expr
+        if ex.head ∉ (:quote, :inert)
+            map!(e->preprocess_expression!(e, new_stdout), ex.args, ex.args)
+        end
+    elseif ex === STDOUT_PLACEHOLDER
+        ex = new_stdout
+    end
+    return ex
+end
+
 # Serve a remote REPL session to a single client over `socket`.
 function serve_repl_session(socket)
     send_header(socket)
@@ -39,7 +51,8 @@ function serve_repl_session(socket)
                 result = nothing
                 resultstr = sprint_ctx(display_properties) do io
                     with_logger(ConsoleLogger(io)) do
-                        result = Main.eval(messagebody)
+                        expr = preprocess_expression!(messagebody, io)
+                        result = Main.eval(expr)
                         if messageid === :eval && !isnothing(result)
                             show(io, MIME"text/plain"(), result)
                         end
