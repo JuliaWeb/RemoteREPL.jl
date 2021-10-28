@@ -36,63 +36,165 @@ function preprocess_expression!(ex, new_stdout)
     return ex
 end
 
-# Serve a remote REPL session to a single client over `socket`.
-function serve_repl_session(socket)
-    send_header(socket)
-    display_properties = Dict()
-    while isopen(socket)
-        request = deserialize(socket)
-        response = nothing
-        try
-            @debug "Client command" request
-            messageid, messagebody = request isa Tuple && length(request) == 2 ?
-                                      request : (nothing,nothing)
-            if messageid in (:eval, :eval_and_get)
-                result = nothing
-                resultstr = sprint_ctx(display_properties) do io
-                    with_logger(ConsoleLogger(io)) do
-                        expr = preprocess_expression!(messagebody, io)
-                        result = Main.eval(expr)
-                        if messageid === :eval && !isnothing(result)
-                            show(io, MIME"text/plain"(), result)
-                        end
+function eval_message(display_properties, messageid, messagebody)
+    try
+        if messageid in (:eval, :eval_and_get)
+            result = nothing
+            resultstr = sprint_ctx(display_properties[]) do io
+                with_logger(ConsoleLogger(io)) do
+                    expr = preprocess_expression!(messagebody, io)
+                    result = Main.eval(expr)
+                    if messageid === :eval && !isnothing(result)
+                        show(io, MIME"text/plain"(), result)
                     end
                 end
-                response = messageid === :eval ?
-                    (:eval_result, resultstr) :
-                    (:eval_and_get_result, (result, resultstr))
-            elseif messageid === :help
-                resultstr = sprint_ctx(display_properties) do io
-                    md = Main.eval(REPL.helpmode(io, messagebody))
-                    show(io, MIME"text/plain"(), md)
-                end
-                response = (:help_result, resultstr)
-            elseif messageid === :display_properties
-                display_properties = messagebody::Dict
-            elseif messageid === :repl_completion
-                # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
-                partial, full = messagebody
-                ret, range, should_complete = REPL.completions(full, lastindex(partial))
-                result = (unique!(map(REPL.completion_text, ret)),
-                          partial[range], should_complete)
-                response = (:completion_result, result)
-            elseif messageid === :exit
-                break
-            else
-                response = (:error, "Unknown message id: $messageid")
             end
-        catch _
-            resultval = sprint_ctx(display_properties) do io
-                Base.display_error(io, Base.catch_stack())
+            return messageid === :eval ?
+                (:eval_result, resultstr) :
+                (:eval_and_get_result, (result, resultstr))
+        elseif messageid === :help
+            resultstr = sprint_ctx(display_properties[]) do io
+                md = Main.eval(REPL.helpmode(io, messagebody))
+                show(io, MIME"text/plain"(), md)
             end
-            response = (:error, resultval)
+            return (:help_result, resultstr)
+        elseif messageid === :display_properties
+            display_properties[] = messagebody::Dict
+            return nothing
+        elseif messageid === :repl_completion
+            # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
+            partial, full = messagebody
+            ret, range, should_complete = REPL.completions(full, lastindex(partial))
+            result = (unique!(map(REPL.completion_text, ret)),
+                      partial[range], should_complete)
+            return (:completion_result, result)
+        else
+            return (:error, "Unknown message id: $messageid")
         end
-        if !isnothing(response)
-            serialize(socket, response)
+    catch _
+        resultstr = sprint_ctx(display_properties[]) do io
+            Base.display_error(io, Base.catch_stack())
+        end
+        return (:error, resultstr)
+    end
+end
+
+function evaluate_requests(request_chan, response_chan)
+    # Use a Ref so that display properties can be persistent between messages
+    display_properties = Ref(Dict())
+
+    while true
+        try
+            request = take!(request_chan)
+            result = eval_message(display_properties, request...)
+            if !isnothing(result)
+                put!(response_chan, result)
+            end
+        catch exc
+            if exc isa InvalidStateException && !isopen(request_chan)
+                break
+            elseif exc isa InterruptException
+                # Ignore any interrupts which are sent while we're not
+                # evaluating a command.
+                continue
+            else
+                rethrow()
+            end
         end
     end
 end
 
+function deserialize_requests(socket, repl_backend, request_chan, response_chan)
+    while isopen(socket)
+        request = nothing
+        try
+            request = deserialize(socket)
+        catch exc
+            resultstr = sprint() do io
+                if exc isa UndefVarError
+                    Base.display_error(io, exc, nothing)
+
+                    print(io, """
+                        This can happen when you try to pass a custom type
+                        from the client which doesn't exist on the server""")
+                else
+                    Base.display_error(io, Base.catch_stack())
+                    println(io, """
+                        Unexpected error deserializing RemoteREPL message""")
+                end
+            end
+            put!(response_chan, (:error, resultstr))
+            continue
+        end
+        @debug "Client command" request
+        if request isa Tuple && length(request) == 2 && request[1] isa Symbol
+            messageid, messagebody = request
+            # Handle flow control messages in the RemoteREPL frontend, here.
+            if messageid === :exit
+                break
+            elseif messageid == :interrupt
+                # Soft interrupt - this will only work if the
+                # `repl_backend` task yields.  It won't work if
+                # `repl_backend` is executing a compute-heavy task
+                # which doesn't yield to the scheduler.
+                schedule(repl_backend, InterruptException(); error=true)
+            else
+                # All other messages are handled by the evaluator
+                put!(request_chan, request)
+            end
+        else
+            put!(response_chan, (:error, "Invalid message of type: $(typeof(request))"))
+        end
+    end
+end
+
+function serialize_responses(socket, response_chan)
+    try
+        while true
+            response = take!(response_chan)
+            serialize(socket, response)
+        end
+    catch exc
+        if isopen(response_chan) && isopen(socket)
+            rethrow()
+        end
+    end
+end
+
+# Serve a remote REPL session to a single client over `socket`.
+function serve_repl_session(socket)
+    send_header(socket)
+    @sync begin
+        request_chan = Channel(1)
+        response_chan = Channel(1)
+
+        repl_backend = @async try
+            evaluate_requests(request_chan, response_chan)
+        catch exc
+            @error "RemoteREPL backend crashed" exception=exc,catch_backtrace()
+        finally
+            close(response_chan)
+        end
+
+        @async try
+            serialize_responses(socket, response_chan)
+        catch exc
+            @error "RemoteREPL responder crashed" exception=exc,catch_backtrace()
+        finally
+            close(socket)
+        end
+
+        try
+            deserialize_requests(socket, repl_backend, request_chan, response_chan)
+        catch exc
+            @error "RemoteREPL frontend crashed" exception=exc,catch_backtrace()
+            rethrow()
+        finally
+            close(socket)
+            close(request_chan)
+        end
+    end
+end
 
 """
     serve_repl([address=Sockets.localhost,] port=$DEFAULT_PORT)
@@ -132,7 +234,6 @@ function serve_repl(server::Base.IOServer)
             socket = accept(server)
             push!(open_sockets, socket)
             peer=getpeername(socket)
-            @info "REPL client opened a connection" peer
             @async try
                 serve_repl_session(socket)
             catch exc
@@ -145,6 +246,7 @@ function serve_repl(server::Base.IOServer)
                 close(socket)
                 pop!(open_sockets, socket)
             end
+            @info "REPL client opened a connection" peer
         end
     catch exc
         if exc isa Base.IOError && !isopen(server)
