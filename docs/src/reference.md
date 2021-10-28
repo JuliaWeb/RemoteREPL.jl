@@ -6,15 +6,6 @@ RemoteREPL syntax is just normal Julia REPL syntax, the only minor difference
 is that `?expr` produces help for `expr`, but we don't have a separate help
 mode for this.
 
-## API reference
-
-```@docs
-connect_repl
-serve_repl
-RemoteREPL.@remote
-RemoteREPL.remote_eval
-```
-
 ## Security considerations
 
 Note that *any logged-in users on the client or server machines can execute
@@ -32,4 +23,13 @@ you'll be left with *no security whatsoever*.
 TLDR; this package aims to provide safe defaults for single-user machines.
 However, *do not expose the RemoteREPL port to an open network*. Abitrary
 remote code execution is the main feature provided by this package!
+
+## API reference
+
+```@docs
+connect_repl
+serve_repl
+RemoteREPL.@remote
+RemoteREPL.remote_eval
+```
 

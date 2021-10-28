@@ -212,10 +212,18 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
 
             ex = simple_macro_expand!(ex, Symbol("@remote")) do clientside_ex
                 try
-                    # Any expressions wrapped in `@remote` need to be executed
-                    # on the client and wrapped in a QuoteNode to prevent them
-                    # being eval'd again in the expression on the server side.
-                    QuoteNode(Main.eval(clientside_ex))
+                    x = Main.eval(clientside_ex)
+                    if x === Base.stdout
+                        # The local stdout cannot be serialized in any sensible way,
+                        # but we store a placeholder for it which will be transformed
+                        # into a serverside approximation of the client stream.
+                        return STDOUT_PLACEHOLDER
+                    else
+                        # Any expressions wrapped in `@remote` need to be executed
+                        # on the client and wrapped in a QuoteNode to prevent them
+                        # being eval'd again in the expression on the server side.
+                        QuoteNode(x)
+                    end
                 catch _
                     error("Error while evaluating `@remote($clientside_ex)` before passing to the server")
                 end

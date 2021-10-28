@@ -40,6 +40,39 @@ julia@your.host> x = 1:42; y = x.^2;
 julia> plot(@remote((x,y))...)
 ```
 
+## Use `stdout` with `println`/`dump`, etc
+
+Lots of functions such as `print` write to the global `stdout` variable, but
+`RemoteREPL` doesn't capture this.
+
+There's two ways to get a similar effect in `RemoteREPL`, both of which rely on
+passing an `IO` object explicitly to `println`/`dump`/etc.
+
+One way is to use `@remote(stdout)` which creates a proxy of the client's
+`stdout` stream on the server which you can write to:
+
+```julia
+julia@localhost> dump(@remote(stdout), :(a + b))
+Expr
+  head: Symbol call
+  args: Array{Any}((3,))
+    1: Symbol +
+    2: Symbol a
+    3: Symbol b
+```
+
+Another way is to use `sprint` to create the `IO` object and wrap the returned
+value in a `Text` object for display:
+
+```julia
+julia@localhost> Text(sprint(dump, :(a+b)))
+Expr
+  head: Symbol call
+  args: Array{Any}((3,))
+    1: Symbol +
+    2: Symbol a
+    3: Symbol b
+```
 
 ## Use alternatives to SSH
 
