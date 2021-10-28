@@ -149,6 +149,10 @@ function send_message(conn::Connection, message; read_response=true)
     return read_response ? deserialize(conn.socket) : (:nothing, nothing)
 end
 
+function send_interrupt(conn::Connection)
+    serialize(conn.socket, (:interrupt, nothing))
+end
+
 #-------------------------------------------------------------------------------
 # REPL integration
 function parse_input(str)

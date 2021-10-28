@@ -138,6 +138,18 @@ try
     @test @remote(conn, serverside_var) == 1:42
     @test_throws RemoteREPL.RemoteException @remote(conn, error("hi"))
 
+    # Test interrupts
+    @sync begin
+        # Interrupt after 0.5 seconds
+        @async begin
+            sleep(0.5)
+            RemoteREPL.send_interrupt(conn)
+        end
+        # Remote command which attempts to sleep for 10 seconds and returns the
+        # actual time spent sleeping
+        @test @remote(conn, (@timed try sleep(10) ; catch ; end).time) < 1
+    end
+
     # Special case handling of stdout
     @test runcommand("println(@remote(stdout), \"hi\")") == "hi\n"
 
