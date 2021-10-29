@@ -163,7 +163,6 @@ function send_and_receive(conn::Connection, request; read_response=true)
             # and corrupt the stream. However, there's not much we can do about
             # this without improving the Julia runtime.
             if exc isa InterruptException
-                @info "Got interrupt" i
                 if i < max_tries
                     send_interrupt(conn)
                     continue
