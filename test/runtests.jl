@@ -138,7 +138,15 @@ try
     @test @remote(conn, serverside_var) == 1:42
     @test_throws RemoteREPL.RemoteException @remote(conn, error("hi"))
 
+    # Special case handling of stdout
+    @test runcommand("println(@remote(stdout), \"hi\")") == "hi\n"
+
+    # Execute a single command on a separate connection
+    @test (RemoteREPL.remote_eval(test_interface, test_port, "asdf")::Text).content == "42"
+
     # Test interrupts
+    # 1. The straightforward reliable way, based on directly sending an
+    # interrupt message to the server
     @sync begin
         # Interrupt after 0.5 seconds
         @async begin
@@ -149,12 +157,61 @@ try
         # actual time spent sleeping
         @test @remote(conn, (@timed try sleep(10) ; catch ; end).time) < 1
     end
-
-    # Special case handling of stdout
-    @test runcommand("println(@remote(stdout), \"hi\")") == "hi\n"
-
-    # Execute a single command on a separate connection
-    @test (RemoteREPL.remote_eval(test_interface, test_port, "asdf")::Text).content == "42"
+    # 2. Approximately simulate the way that a user-driven ^C gets delivered to
+    # the task waiting on the socket
+    @sync begin
+        task = current_task()
+        @async begin
+            sleep(0.5)
+            schedule(task, InterruptException(), error=true)
+        end
+        # Remote command which attempts to sleep for 10 seconds and returns the
+        # actual time spent sleeping
+        @test @remote(conn, (@timed try sleep(10) ; catch ; end).time) < 1
+    end
+    # 3. Test that we disconnect from the server when trying to interrupt
+    #    non-interruptable code
+    @sync begin
+        task = @async try
+            # Execute some non-interruptable code on the server.
+            #
+            # Normally this would be a compute-heavy task which doesn't yield,
+            # but a non-interruptable sleep which catches InterruptException is
+            # a more controlled way to simulate this.
+            @remote(conn, begin
+                t0 = time()
+                sleep_time = 5
+                while true
+                    dt = sleep_time + t0 - time()
+                    if dt < 0
+                        break
+                    end
+                    try
+                        sleep(dt)
+                    catch exc
+                        if exc isa InterruptException
+                            continue
+                        else
+                            rethrow()
+                        end
+                    end
+                end
+            end)
+        catch exc
+            exc
+        end
+        # Three attempts to interrupt will result in the connection being
+        # closed to allow the client to recover.
+        sleep(0.5)
+        schedule(task, InterruptException(), error=true)
+        @test !istaskdone(task)
+        sleep(0.5)
+        schedule(task, InterruptException(), error=true)
+        @test !istaskdone(task)
+        sleep(0.5)
+        schedule(task, InterruptException(), error=true)
+        @test fetch(task) == RemoteREPL.RemoteException("ERROR: Failed to interrupt server, connection closed!")
+    end
 end
 
 finally

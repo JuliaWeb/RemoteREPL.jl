@@ -143,10 +143,38 @@ function ensure_connected!(f::Function, conn::Connection; retries=1)
     end
 end
 
-function send_message(conn::Connection, message; read_response=true)
-    serialize(conn.socket, message)
+function send_and_receive(conn::Connection, request; read_response=true)
+    serialize(conn.socket, request)
     flush(conn.socket)
-    return read_response ? deserialize(conn.socket) : (:nothing, nothing)
+    if !read_response
+        return (:nothing, nothing)
+    end
+    max_tries = 3
+    for i = 1:max_tries
+        try
+            return deserialize(conn.socket)
+        catch exc
+            # If an InterruptException is caught here while waiting for a
+            # response from the server, we assume the user was trying to
+            # interrupt the remote evaluation.
+            #
+            # This isn't perfect. For example, for large messages the user
+            # might interrupt the deserialization while waiting on socket IO,
+            # and corrupt the stream. However, there's not much we can do about
+            # this without improving the Julia runtime.
+            if exc isa InterruptException
+                @info "Got interrupt" i
+                if i < max_tries
+                    send_interrupt(conn)
+                    continue
+                else
+                    close(conn)
+                    return (:error, "ERROR: Failed to interrupt server, connection closed!")
+                end
+            end
+            rethrow()
+        end
+    end
 end
 
 function send_interrupt(conn::Connection)
@@ -189,7 +217,7 @@ function REPL.complete_line(provider::RemoteCompletionProvider,
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
     result = ensure_connected!(provider.connection) do
-        send_message(provider.connection, (:repl_completion, (partial, full)))
+        send_and_receive(provider.connection, (:repl_completion, (partial, full)))
     end
     if isnothing(result) || result[1] != :completion_result
         return ([], "", false)
@@ -206,7 +234,7 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
             :limit=>true,
             :module=>Main,
         )
-        send_message(conn, (:display_properties, display_props), read_response=false)
+        send_and_receive(conn, (:display_properties, display_props), read_response=false)
 
         # Send actual command
         magic = match_magic_syntax(cmdstr)
@@ -241,7 +269,7 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
                 cmd = (:help, magic[2])
             end
         end
-        messageid, value = send_message(conn, cmd)
+        messageid, value = send_and_receive(conn, cmd)
         result_for_display = nothing
         if messageid in (:eval_result, :help_result, :error)
             if !isnothing(value)
@@ -261,7 +289,7 @@ remote_eval_and_fetch(::Nothing, ex) = error("No remote connection is active")
 function remote_eval_and_fetch(conn::Connection, ex)
     ensure_connected!(conn) do
         cmd = (:eval_and_get, ex)
-        messageid, value = send_message(conn, cmd)
+        messageid, value = send_and_receive(conn, cmd)
         if messageid == :eval_and_get_result
             logstring = value[2]
             if !isempty(logstring)
