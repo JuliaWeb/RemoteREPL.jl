@@ -45,7 +45,10 @@ function eval_message(display_properties, messageid, messagebody)
                     expr = preprocess_expression!(messagebody, io)
                     result = Main.eval(expr)
                     if messageid === :eval && !isnothing(result)
-                        show(io, MIME"text/plain"(), result)
+                        # We require invokelatest here in case the user
+                        # modifies any method tables after starting the session,
+                        # which change methods of `show`
+                        Base.invokelatest(show, io, MIME"text/plain"(), result)
                     end
                 end
             end
@@ -55,7 +58,7 @@ function eval_message(display_properties, messageid, messagebody)
         elseif messageid === :help
             resultstr = sprint_ctx(display_properties[]) do io
                 md = Main.eval(REPL.helpmode(io, messagebody))
-                show(io, MIME"text/plain"(), md)
+                Base.invokelatest(show, io, MIME"text/plain"(), md)
             end
             return (:help_result, resultstr)
         elseif messageid === :display_properties
@@ -73,7 +76,7 @@ function eval_message(display_properties, messageid, messagebody)
         end
     catch _
         resultstr = sprint_ctx(display_properties[]) do io
-            Base.display_error(io, Base.catch_stack())
+            Base.invokelatest(Base.display_error, io, Base.catch_stack())
         end
         return (:error, resultstr)
     end
