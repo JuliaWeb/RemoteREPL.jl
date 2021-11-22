@@ -141,6 +141,24 @@ try
     # Special case handling of stdout
     @test runcommand("println(@remote(stdout), \"hi\")") == "hi\n"
 
+    # Issue #26: world age errors showing output
+    @test runcommand("""
+        struct A
+        end
+
+        Base.show(io::IO, a::A) = print(io, "Surprise")
+
+        A()
+        """) == "Surprise"
+    @test occursin("Surprise", runcommand("""
+        struct MyExc <: Exception
+        end
+
+        Base.showerror(io::IO, e::MyExc) = print(io, "Surprise")
+
+        throw(MyExc())
+        """))
+
     # Execute a single command on a separate connection
     @test (RemoteREPL.remote_eval(test_interface, test_port, "asdf")::Text).content == "42"
 
