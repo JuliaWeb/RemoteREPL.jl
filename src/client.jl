@@ -60,8 +60,7 @@ function verify_header(io, ser_version=Serialization.ser_version)
 end
 
 #-------------------------------------------------------------------------------
-# RemoteREPL connection handling and protocol
-
+# Client side connection / session handling
 mutable struct Connection
     host
     port
@@ -70,12 +69,13 @@ mutable struct Connection
     region
     namespace
     socket
+    in_module
 end
 
 function Connection(; host=Sockets.localhost, port::Integer=DEFAULT_PORT,
                     tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
                     ssh_opts=``, region=nothing, namespace=nothing)
-    conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing)
+    conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing, :Main)
     setup_connection!(conn)
     finalizer(close, conn)
 end
@@ -97,6 +97,9 @@ function setup_connection!(conn::Connection)
         rethrow()
     end
     conn.socket = socket
+    if conn.in_module != :Main
+        send_and_receive(conn, (:in_module, conn.in_module))
+    end
     conn
 end
 
@@ -187,12 +190,12 @@ function parse_input(str)
 end
 
 function match_magic_syntax(str)
-    if startswith(str, '?')
-        return "?", str[2:end]
+    m = match(r"(%module|\?) *(.*)", str)
+    if !isnothing(m)
+        return (m[1], m[2])
+    else
+        return nothing
     end
-    # We previously matched %get and %put RemoteREPL magics, but those were
-    # removed in favour of `@remote`. Keeping `match_magic_syntax` for now in
-    # case we want other magic syntax in the future.
 end
 
 function valid_input_checker(prompt_state)
@@ -215,6 +218,9 @@ function REPL.complete_line(provider::RemoteCompletionProvider,
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
+    if !isempty(full) && startswith("%modul", full)
+        return (["%module"], full, true)
+    end
     result = ensure_connected!(provider.connection) do
         send_and_receive(provider.connection, (:repl_completion, (partial, full)))
     end
@@ -230,9 +236,9 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
         display_props = Dict(
             :displaysize=>displaysize(out_stream),
             :color=>get(out_stream, :color, false),
-            :limit=>true,
-            :module=>Main,
+            :limit=>true
         )
+        # TODO breaking change - send these as part of :eval, perhaps ?
         send_and_receive(conn, (:display_properties, display_props), read_response=false)
 
         # Send actual command
@@ -266,11 +272,14 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
             if magic[1] == "?"
                 # Help mode
                 cmd = (:help, magic[2])
+            elseif magic[1] == "%module"
+                mod_ex = parse_input(magic[2])
+                cmd = (:in_module, mod_ex)
             end
         end
         messageid, value = send_and_receive(conn, cmd)
         result_for_display = nothing
-        if messageid in (:eval_result, :help_result, :error)
+        if messageid in (:in_module, :eval_result, :help_result, :error)
             if !isnothing(value)
                 if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
                     result_for_display = Text(value)

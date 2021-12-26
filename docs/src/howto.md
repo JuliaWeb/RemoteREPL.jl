@@ -74,6 +74,28 @@ Expr
     3: Symbol b
 ```
 
+## Evaluate commands in another module
+
+If your server process has state in another module, you can tell RemoteREPL to
+evaluate all commands in that module. For example:
+
+```julia
+julia@localhost> module SomeMod
+                    a_variable = 1
+                 end
+Main.SomeMod
+
+julia@localhost> a_variable
+ERROR: UndefVarError: a_variable not defined
+[...]
+
+julia@localhost> %module SomeMod
+Evaluating commands in module Main.SomeMod
+
+julia@localhost> a_variable
+1
+```
+
 ## Use alternatives to SSH
 
 ### AWS Session Manager

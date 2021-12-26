@@ -36,7 +36,7 @@ end
     function fake_conn(host, port; is_open=true)
         io = IOBuffer()
         is_open || close(io)
-        RemoteREPL.Connection(host, port, nothing, nothing, nothing, nothing, io)
+        RemoteREPL.Connection(host, port, nothing, nothing, nothing, nothing, io, :Main)
     end
     @test repl_prompt_text(fake_conn(Sockets.localhost, DEFAULT_PORT)) == "julia@localhost> "
     @test repl_prompt_text(fake_conn("localhost",       DEFAULT_PORT)) == "julia@localhost> "
@@ -130,6 +130,30 @@ try
             runcommand("@doc \"helpmodetest documentation!\" helpmodetest")
             runcommand("?helpmodetest")
         end)
+
+    # Completions
+    runcommand("complete_me_1 = 1")
+    runcommand("complete_me_2 = 2")
+    completion_msg = RemoteREPL.send_and_receive(conn,
+                        (:repl_completion, ("complete_m", "complete_m")))
+    @test completion_msg[1] == :completion_result
+    @test completion_msg[2] == (["complete_me_1", "complete_me_2"], "complete_m", true)
+
+    # Evaluation in other modules
+    runcommand("""module TestMod
+                  struct SomeStruct
+                  end
+                  var_in_test_mod = 123
+               end""")
+    @test runcommand("%module TestMod") == "Evaluating commands in module Main.TestMod"
+    @test runcommand("var_in_test_mod") == "123"
+    # Test that show() on the remote side uses the eval module as the context
+    # module in the show IOContext
+    @test runcommand("SomeStruct") == "SomeStruct"
+    completion_msg = RemoteREPL.send_and_receive(conn,
+                        (:repl_completion, ("complete_m", "complete_m")))
+    @test completion_msg[1] == :completion_result
+    @test completion_msg[2] == ([], "complete_m", true)
 
     # Test the @remote macro
     Main.eval(:(clientside_var = 0:41))

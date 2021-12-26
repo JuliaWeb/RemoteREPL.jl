@@ -3,6 +3,11 @@ using Serialization
 using REPL
 using Logging
 
+mutable struct ServerSideSession
+    display_properties::Dict
+    in_module::Module
+end
+
 function send_header(io, ser_version=Serialization.ser_version)
     write(io, PROTOCOL_MAGIC, PROTOCOL_VERSION)
     write(io, UInt32(ser_version))
@@ -17,9 +22,9 @@ end
 #     remote server
 #   * It allows us to limit the amount of data transmitted (eg, large arrays
 #     are truncated when the :limit IOContext property is set)
-function sprint_ctx(f, ctx_properties)
+function sprint_ctx(f, session)
     io = IOBuffer()
-    ctx = IOContext(io, ctx_properties...)
+    ctx = IOContext(io, :module=>session.in_module, session.display_properties...)
     f(ctx)
     String(take!(io))
 end
@@ -36,14 +41,14 @@ function preprocess_expression!(ex, new_stdout)
     return ex
 end
 
-function eval_message(display_properties, messageid, messagebody)
+function eval_message(session, messageid, messagebody)
     try
         if messageid in (:eval, :eval_and_get)
             result = nothing
-            resultstr = sprint_ctx(display_properties[]) do io
+            resultstr = sprint_ctx(session) do io
                 with_logger(ConsoleLogger(io)) do
                     expr = preprocess_expression!(messagebody, io)
-                    result = Main.eval(expr)
+                    result = Base.eval(session.in_module, expr)
                     if messageid === :eval && !isnothing(result)
                         # We require invokelatest here in case the user
                         # modifies any method tables after starting the session,
@@ -56,18 +61,24 @@ function eval_message(display_properties, messageid, messagebody)
                 (:eval_result, resultstr) :
                 (:eval_and_get_result, (result, resultstr))
         elseif messageid === :help
-            resultstr = sprint_ctx(display_properties[]) do io
+            resultstr = sprint_ctx(session) do io
                 md = Main.eval(REPL.helpmode(io, messagebody))
                 Base.invokelatest(show, io, MIME"text/plain"(), md)
             end
             return (:help_result, resultstr)
         elseif messageid === :display_properties
-            display_properties[] = messagebody::Dict
+            session.display_properties = messagebody::Dict
             return nothing
+        elseif messageid === :in_module
+            mod = Main.eval(messagebody)::Module
+            session.in_module = mod
+            resultstr = "Evaluating commands in module $mod"
+            return (:in_module, resultstr)
         elseif messageid === :repl_completion
             # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
             partial, full = messagebody
-            ret, range, should_complete = REPL.completions(full, lastindex(partial))
+            ret, range, should_complete = REPL.completions(full, lastindex(partial),
+                                                           session.in_module)
             result = (unique!(map(REPL.completion_text, ret)),
                       partial[range], should_complete)
             return (:completion_result, result)
@@ -75,7 +86,7 @@ function eval_message(display_properties, messageid, messagebody)
             return (:error, "Unknown message id: $messageid")
         end
     catch _
-        resultstr = sprint_ctx(display_properties[]) do io
+        resultstr = sprint_ctx(session) do io
             Base.invokelatest(Base.display_error, io, Base.catch_stack())
         end
         return (:error, resultstr)
@@ -83,13 +94,12 @@ function eval_message(display_properties, messageid, messagebody)
 end
 
 function evaluate_requests(request_chan, response_chan)
-    # Use a Ref so that display properties can be persistent between messages
-    display_properties = Ref(Dict())
+    session = ServerSideSession(Dict(), Main)
 
     while true
         try
             request = take!(request_chan)
-            result = eval_message(display_properties, request...)
+            result = eval_message(session, request...)
             if !isnothing(result)
                 put!(response_chan, result)
             end
