@@ -47,6 +47,28 @@ end
     @test repl_prompt_text(fake_conn("ABC", DEFAULT_PORT, is_open=false)) == "julia@ABC [disconnected]> "
 end
 
+function wait_conn(host, port, use_ssh; max_tries=4)
+    for i=1:max_tries
+        try
+            return RemoteREPL.Connection(host=host, port=port,
+                                         tunnel=use_ssh ? :ssh : :none,
+                                         ssh_opts=`-o StrictHostKeyChecking=no`)
+        catch exc
+            if i == max_tries
+                rethrow()
+            end
+            # Server not yet started - continue waiting
+            sleep(2)
+        end
+    end
+end
+
+function runcommand_unwrap(conn, cmdstr)
+    result = RemoteREPL.run_remote_repl_command(conn, IOBuffer(), cmdstr)
+    # Unwrap Text for testing purposes
+    return result isa Text ? result.content : result
+end
+
 # Connect to a non-default loopback address to test SSH integration
 test_interface = ip"127.111.111.111"
 
@@ -56,7 +78,7 @@ use_ssh = if "use_ssh=true" in ARGS
 elseif "use_ssh=false" in ARGS
     false
 else
-    # Autodetct
+    # Autodetect
     try
         socket = Sockets.connect(test_interface, 22)
         # https://tools.ietf.org/html/rfc4253#section-4.2
@@ -78,34 +100,15 @@ server_proc = run(`$(Base.julia_cmd()) -e "using Sockets; using RemoteREPL; serv
 
 try
 
-@testset "RemoteREPL.jl" begin
-    local conn = nothing
-    max_tries = 4
-    for i=1:max_tries
-        try
-            conn = RemoteREPL.Connection(host=test_interface, port=test_port,
-                                         tunnel=use_ssh ? :ssh : :none,
-                                         ssh_opts=`-o StrictHostKeyChecking=no`)
-            break
-        catch exc
-            if i == max_tries
-                rethrown()
-            end
-            # Server not yet started - continue waiting
-            sleep(2)
-        end
-    end
+@testset "Client server tests" begin
+    conn = wait_conn(test_interface, test_port, use_ssh)
     @assert isopen(conn)
 
     # Some basic tests of the transport and server side and partial client side.
     #
     # More full testing of the client code would requires some tricky mocking
     # of the REPL environment.
-    function runcommand(cmdstr)
-        result = RemoteREPL.run_remote_repl_command(conn, IOBuffer(), cmdstr)
-        # Unwrap Text for testing purposes
-        return result isa Text ? result.content : result
-    end
+    runcommand(cmdstr) = runcommand_unwrap(conn, cmdstr)
 
     @test runcommand("asdf = 42") == "42"
     @test runcommand("Main.asdf") == "42"
@@ -257,6 +260,24 @@ try
         schedule(task, InterruptException(), error=true)
         @test fetch(task) == RemoteREPL.RemoteException("ERROR: Failed to interrupt server, connection closed!")
     end
+end
+
+finally
+    kill(server_proc)
+end
+
+
+test_port = RemoteREPL.find_free_port(Sockets.localhost)
+server_proc = run(```$(Base.julia_cmd()) -e "using Sockets; using RemoteREPL; module EvalInMod ; end;
+                  serve_repl($test_port, on_client_connect=sess->sess.in_module=EvalInMod)"```, wait=false)
+try
+
+@testset "on_client_connect" begin
+    conn = wait_conn(test_interface, test_port, use_ssh)
+
+    runcommand(cmdstr) = runcommand_unwrap(conn, cmdstr)
+
+    @test runcommand("@__MODULE__") == "Main.EvalInMod"
 end
 
 finally

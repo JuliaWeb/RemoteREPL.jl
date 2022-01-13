@@ -4,9 +4,13 @@ using REPL
 using Logging
 
 mutable struct ServerSideSession
+    socket
     display_properties::Dict
     in_module::Module
 end
+
+Base.isopen(session::ServerSideSession) = isopen(session.socket)
+Base.close(session::ServerSideSession)  = close(session.socket)
 
 function send_header(io, ser_version=Serialization.ser_version)
     write(io, PROTOCOL_MAGIC, PROTOCOL_VERSION)
@@ -93,9 +97,7 @@ function eval_message(session, messageid, messagebody)
     end
 end
 
-function evaluate_requests(request_chan, response_chan)
-    session = ServerSideSession(Dict(), Main)
-
+function evaluate_requests(session, request_chan, response_chan)
     while true
         try
             request = take!(request_chan)
@@ -174,15 +176,16 @@ function serialize_responses(socket, response_chan)
     end
 end
 
-# Serve a remote REPL session to a single client over `socket`.
-function serve_repl_session(socket)
+# Serve a remote REPL session to a single client
+function serve_repl_session(session)
+    socket = session.socket
     send_header(socket)
     @sync begin
         request_chan = Channel(1)
         response_chan = Channel(1)
 
         repl_backend = @async try
-            evaluate_requests(request_chan, response_chan)
+            evaluate_requests(session, request_chan, response_chan)
         catch exc
             @error "RemoteREPL backend crashed" exception=exc,catch_backtrace()
         finally
@@ -210,13 +213,17 @@ function serve_repl_session(socket)
 end
 
 """
-    serve_repl([address=Sockets.localhost,] port=$DEFAULT_PORT)
+    serve_repl([address=Sockets.localhost,] port=$DEFAULT_PORT; [on_client_connect=nothing])
     serve_repl(server)
 
 Start a REPL server listening on interface `address` and `port`. In normal
 operation `serve_repl()` serves REPL clients indefinitely (ie., it does not
 return), so you will generally want to launch it using `@async serve_repl()` to
 do other useful work at the same time.
+
+The hook `on_client_connect` may be supplied to modify the `ServerSideSession`
+for a client after each client connects. This can be used to define the default
+module in which the client evaluates commands.
 
 If you want to be able to stop the server you can pass an already-listening
 `server` object (the result of `Sockets.listen()`). The server can then be
@@ -230,34 +237,38 @@ be used on open networks or multi-user machines where other users aren't
 trusted. For open networks, use the default `address=Sockets.localhost` and the
 automatic ssh tunnel support provided by the client-side `connect_repl()`.
 """
-function serve_repl(address=Sockets.localhost, port::Integer=DEFAULT_PORT)
+function serve_repl(address=Sockets.localhost, port::Integer=DEFAULT_PORT; kws...)
     server = listen(address, port)
     try
-        serve_repl(server)
+        serve_repl(server; kws...)
     finally
         close(server)
     end
 end
-serve_repl(port::Integer) = serve_repl(Sockets.localhost, port)
+serve_repl(port::Integer; kws...) = serve_repl(Sockets.localhost, port; kws...)
 
-function serve_repl(server::Base.IOServer)
-    open_sockets = Set()
+function serve_repl(server::Base.IOServer; on_client_connect=nothing)
+    open_sessions = Set{ServerSideSession}()
     @sync try
         while isopen(server)
             socket = accept(server)
-            push!(open_sockets, socket)
-            peer=getpeername(socket)
+            session = ServerSideSession(socket, Dict(), Main)
+            push!(open_sessions, session)
+            peer = getpeername(socket)
             @async try
-                serve_repl_session(socket)
+                if !isnothing(on_client_connect)
+                    on_client_connect(session)
+                end
+                serve_repl_session(session)
             catch exc
-                if !(exc isa EOFError && !isopen(socket))
+                if !(exc isa EOFError && !isopen(session))
                     @warn "Something went wrong evaluating client command" #=
                         =# exception=exc,catch_backtrace()
                 end
             finally
                 @info "REPL client exited" peer
-                close(socket)
-                pop!(open_sockets, socket)
+                close(session)
+                pop!(open_sessions, session)
             end
             @info "REPL client opened a connection" peer
         end
@@ -269,8 +280,8 @@ function serve_repl(server::Base.IOServer)
         @error "Unexpected server failure" isopen(server) exception=exc,catch_backtrace()
         rethrow()
     finally
-        for socket in open_sockets
-            close(socket)
+        for session in open_sessions
+            close(session)
         end
     end
 end
