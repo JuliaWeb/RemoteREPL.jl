@@ -147,6 +147,9 @@ try
                end""")
     @test runcommand("%module TestMod") == "Evaluating commands in module Main.TestMod"
     @test runcommand("var_in_test_mod") == "123"
+    # Artificially force a reconnect so we can test that the current module is remembered
+    close(conn.socket)
+    @test runcommand("var_in_test_mod") == "123"
     # Test that show() on the remote side uses the eval module as the context
     # module in the show IOContext
     @test runcommand("SomeStruct") == "SomeStruct"

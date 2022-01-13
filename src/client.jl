@@ -273,7 +273,7 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
                 # Help mode
                 cmd = (:help, magic[2])
             elseif magic[1] == "%module"
-                mod_ex = parse_input(magic[2])
+                mod_ex = Meta.parse(magic[2])
                 cmd = (:in_module, mod_ex)
             end
         end
@@ -284,6 +284,9 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
                 if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
                     result_for_display = Text(value)
                 end
+            end
+            if messageid == :in_module
+                conn.in_module = mod_ex
             end
         else
             @error "Unexpected response from server" messageid
