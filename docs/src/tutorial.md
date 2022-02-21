@@ -16,7 +16,7 @@ some command:
 ```julia
 julia> using RemoteREPL
 
-julia> connect_repl()
+julia> connect_repl();
 REPL mode remote_repl initialized. Press > to enter and backspace to exit.
 
 julia@localhost> x = 123

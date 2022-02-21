@@ -3,19 +3,44 @@
 exec julia -O0 --compile=min -q -i --startup-file=no -e 'include(popfirst!(ARGS))' "$0" "$@"
 =#
 
-using RemoteREPL, Sockets
-@async try
-    # Wait for main REPL to initialize
-    while !isdefined(Base, :active_repl)
-        sleep(0.1)
+let
+
+# Use an anonymous module to avoid polluting the Main namespace
+init_mod = Module()
+@eval init_mod begin
+
+using RemoteREPL, Sockets, ReplMaker
+
+atreplinit() do repl
+    try
+        host = length(ARGS) >= 1 ? ARGS[1] : Sockets.localhost
+        prompt = connect_repl(host, startup_text=false, repl=repl)
+        # Run one command as part of connection setup to trigger compilation
+        # This makes the REPL more immediately responsive after it prints the
+        # welcome message.
+        RemoteREPL.run_remote_repl_command(RemoteREPL._repl_client_connection,
+                                           stdout, "\"hi\"")
+        println("""
+            Connected to $host
+            Press backspace to get to the local Julia repl and `>` to enter remote commands.
+        """)
+        @async begin
+            # We want to automatically enter the REPL mode, but need to do this
+            # asynchronously as `mistate` doesn't exist until after
+            # atreplinit() is called.
+            for i=1:10
+                sleep(0.1)
+                if repl.mistate !== nothing
+                    enter_mode!(repl.mistate, prompt)
+                    break
+                end
+            end
+        end
+    catch exc
+        @error "could not connect" exception=exc
     end
-    host = length(ARGS) >= 1 ? ARGS[1] : Sockets.localhost
-    connect_repl(host, startup_text=false)
-    # Run one command as part of connection setup to trigger compilation
-    RemoteREPL.run_remote_repl_command(RemoteREPL._repl_client_connection,
-                                       stdout,
-                                       "\"hi\"")
-    println("\n\nConnected to $host. Press `⏎` and `>` to enter remote REPL.")
-catch exc
-    @error "could not connect" exception=exc
+end
+
+end
+
 end

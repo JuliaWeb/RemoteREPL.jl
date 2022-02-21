@@ -21,7 +21,7 @@
    ```
 2. Start up Julia and run the code
    ```julia
-   using RemoteREPL; connect_repl("your.example.host")
+   using RemoteREPL; connect_repl("your.example.host");
    ```
    Alternatively use the shell wrapper script `RemoteREPL/bin/julia-r`:
    ```bash
