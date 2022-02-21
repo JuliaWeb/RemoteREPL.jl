@@ -332,7 +332,7 @@ _repl_client_connection = nothing
 """
     connect_repl([host=localhost,] port::Integer=$DEFAULT_PORT;
                  use_ssh_tunnel = (host != localhost) ? :ssh : :none,
-                 ssh_opts = ``)
+                 ssh_opts = ``, repl=Base.active_repl)
 
 Connect client REPL to a remote `host` on `port`. This is then accessible as a
 remote sub-repl of the current Julia session.
@@ -358,7 +358,7 @@ See README.md for more information.
 function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
                       ssh_opts=``, region=nothing, namespace=nothing,
-                      startup_text=true)
+                      startup_text=true, repl=Base.active_repl)
     global _repl_client_connection
 
     if !isnothing(_repl_client_connection)
@@ -372,7 +372,7 @@ function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
     conn = Connection(host=host, port=port, tunnel=tunnel,
                       ssh_opts=ssh_opts, region=region, namespace=namespace)
     out_stream = stdout
-    ReplMaker.initrepl(c->run_remote_repl_command(conn, out_stream, c),
+    prompt = ReplMaker.initrepl(c->run_remote_repl_command(conn, out_stream, c),
                        repl         = Base.active_repl,
                        valid_input_checker = valid_input_checker,
                        prompt_text  = ()->repl_prompt_text(conn),
@@ -385,8 +385,7 @@ function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                        )
     # Record the connection which is attached to the REPL
     _repl_client_connection = conn
-
-    nothing
+    prompt
 end
 
 connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
