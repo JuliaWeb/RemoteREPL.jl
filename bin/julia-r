@@ -1,6 +1,6 @@
 #!/bin/bash
 #=
-exec julia -q -i --startup-file=no -e 'include(popfirst!(ARGS))' "$0" "$@"
+exec julia -O0 --compile=min -q -i --startup-file=no -e 'include(popfirst!(ARGS))' "$0" "$@"
 =#
 
 using RemoteREPL, Sockets
