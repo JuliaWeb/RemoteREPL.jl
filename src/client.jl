@@ -190,7 +190,7 @@ function parse_input(str)
 end
 
 function match_magic_syntax(str)
-    m = match(r"(%module|\?) *(.*)", str)
+    m = match(r"^(%module|\?) *(.*)", str)
     if !isnothing(m)
         return (m[1], m[2])
     else

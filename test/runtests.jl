@@ -1,7 +1,7 @@
 using RemoteREPL
 using Test
 using Sockets
-using RemoteREPL: repl_prompt_text, DEFAULT_PORT
+using RemoteREPL: repl_prompt_text, match_magic_syntax, DEFAULT_PORT
 
 ENV["JULIA_DEBUG"] = "RemoteREPL"
 
@@ -30,6 +30,18 @@ ENV["JULIA_DEBUG"] = "RemoteREPL"
         RemoteREPL.send_header(io, remote_ver)
         @test_throws ErrorException RemoteREPL.verify_header(io, local_ver)
     end
+end
+
+@testset "Repl Magic syntax" begin
+    # Help mode
+    @test match_magic_syntax("?xx") == ("?", "xx")
+    @test match_magic_syntax("? xx") == ("?", "xx")
+    @test match_magic_syntax(" ?xx") == nothing
+    @test match_magic_syntax("x ? y : z") == nothing
+
+    # Module setting
+    @test match_magic_syntax("%module xx") == ("%module", "xx")
+    @test match_magic_syntax("  %module xx") == nothing
 end
 
 @testset "Prompt text" begin
