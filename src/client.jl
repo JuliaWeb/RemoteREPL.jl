@@ -190,7 +190,7 @@ function parse_input(str)
 end
 
 function match_magic_syntax(str)
-    m = match(r"^(%module|\?) *(.*)", str)
+    m = match(r"^(%module|\?|%include) *(.*)", str)
     if !isnothing(m)
         return (m[1], m[2])
     else
@@ -202,7 +202,11 @@ function valid_input_checker(prompt_state)
     cmdstr = String(take!(copy(REPL.LineEdit.buffer(prompt_state))))
     magic = match_magic_syntax(cmdstr)
     if !isnothing(magic)
-        cmdstr = magic[2]
+        if magic[1] in ("%module", "?")
+            cmdstr = magic[2]
+        elseif magic[1] == "%include"
+            return true
+        end
     end
     ex = parse_input(cmdstr)
     return !Meta.isexpr(ex, :incomplete)
@@ -212,14 +216,36 @@ struct RemoteCompletionProvider <: REPL.LineEdit.CompletionProvider
     connection
 end
 
+function path_str(path_completion)
+    path = REPL.REPLCompletions.completion_text(path_completion)
+    if Sys.iswindows()
+        # On windows, REPLCompletions.complete_path() adds extra escapes for
+        # use within a normal string in the Juila REPL but we don't need those.
+        path = replace(path, "\\\\"=>'\\')
+    end
+    return path
+end
+
 function REPL.complete_line(provider::RemoteCompletionProvider,
                             state::REPL.LineEdit.PromptState)::
                             Tuple{Vector{String},String,Bool}
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
     full = REPL.LineEdit.input_string(state)
-    if !isempty(full) && startswith("%modul", full)
-        return (["%module"], full, true)
+    if startswith(full, "%m")
+        if startswith("%module", full)
+            return (["%module "], full, true)
+        end
+    elseif startswith(full, "%i")
+        if startswith("%include", full)
+            return (["%include "], full, true)
+        elseif startswith(full, "%include ")
+            _, path_prefix = match_magic_syntax(full)
+            (path_completions, range, should_complete) =
+                REPL.REPLCompletions.complete_path(path_prefix, length(path_prefix))
+            completions = [path_str(c) for c in path_completions]
+            return (completions, path_prefix[range], should_complete)
+        end
     end
     result = ensure_connected!(provider.connection) do
         send_and_receive(provider.connection, (:repl_completion, (partial, full)))
@@ -275,6 +301,19 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
             elseif magic[1] == "%module"
                 mod_ex = Meta.parse(magic[2])
                 cmd = (:in_module, mod_ex)
+            elseif magic[1] == "%include"
+                path = abspath(magic[2])
+                text = read(path, String)
+                # Some rough heuristics to construct a file URI. This gives us
+                # a place to put the host name.
+                if !startswith(path, '/')
+                    path = '/'*path
+                end
+                if Sys.iswindows()
+                    path = replace(path, '\\'=>'/')
+                end
+                path_uri = "file://$(gethostname())$path"
+                cmd = (:eval, :(Base.include_string(@__MODULE__, $text, $path_uri)))
             end
         end
         messageid, value = send_and_receive(conn, cmd)

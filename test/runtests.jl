@@ -42,6 +42,10 @@ end
     # Module setting
     @test match_magic_syntax("%module xx") == ("%module", "xx")
     @test match_magic_syntax("  %module xx") == nothing
+
+    # Remote include
+    @test match_magic_syntax("%include /path/to/file") == ("%include", "/path/to/file")
+    @test match_magic_syntax("%include  /path /to/file") == ("%include", "/path /to/file")
 end
 
 @testset "Prompt text" begin
@@ -172,6 +176,11 @@ try
                         (:repl_completion, ("complete_m", "complete_m")))
     @test completion_msg[1] == :completion_result
     @test completion_msg[2] == ([], "complete_m", true)
+
+    # Remote include
+    path = joinpath(@__DIR__, "to_include.jl")
+    @test runcommand("%include $path") == "12345"
+    @test runcommand("var_in_included_file") == "12345"
 
     # Test the @remote macro
     Main.eval(:(clientside_var = 0:41))
