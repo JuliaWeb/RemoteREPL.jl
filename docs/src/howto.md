@@ -74,6 +74,17 @@ Expr
     3: Symbol b
 ```
 
+## Include a remote file
+
+To include a Julia source file from the client into the current module on the
+remote side, use the `%include` REPL magic:
+
+```julia
+julia@localhost> %include some/file.jl
+```
+
+`%include` has tab completion for local paths on the client.
+
 ## Evaluate commands in another module
 
 If your server process has state in another module, you can tell RemoteREPL to
