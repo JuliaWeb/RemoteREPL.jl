@@ -1,6 +1,7 @@
 #!/bin/bash
 #=
-exec julia -O0 --compile=min -q -i --startup-file=no -e 'include(popfirst!(ARGS))' "$0" "$@"
+[[ $1 == +* ]] && juliaup_arg=$1 && shift # release channel for juliaup
+exec julia ${juliaup_arg} -O0 --compile=min -q -i --startup-file=no -e 'include(popfirst!(ARGS))' "$0" "$@"
 =#
 
 let
@@ -37,7 +38,7 @@ atreplinit() do repl
             end
         end
     catch exc
-        @error "could not connect" exception=exc
+        @error "could not connect" exception=exc,catch_backtrace()
     end
 end
 
