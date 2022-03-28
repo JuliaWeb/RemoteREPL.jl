@@ -32,6 +32,51 @@ function simple_macro_expand!(func, ex, macro_name)
     return ex
 end
 
+# Parse all top level code from `path`, using a file:// URI as the file name.
+function parseall_with_file_urls(path)
+    path = abspath(path)
+    text = read(path, String)
+    # Some rough heuristics to construct a file URI. This gives us
+    # a place to put the host name.
+    if !startswith(path, '/')
+        path = '/'*path
+    end
+    if Sys.iswindows()
+        path = replace(path, '\\'=>'/')
+    end
+    path_uri = "file://$(gethostname())$path"
+    return VERSION >= v"1.6" ?
+        Meta.parseall(text, filename=path_uri) :
+        Base.parse_input_line(text, filename=path_uri)
+end
+
+# Replace simple occurances of `include(path)` at top level and module scope
+# when `path` is a string literal.
+function replace_includes!(ex, parentdir)
+    if Meta.isexpr(ex, :call) && ex.args[1] == :include
+        if length(ex.args) == 2 && ex.args[2] isa AbstractString
+            p = joinpath(parentdir, ex.args[2])
+            inc_ex = parseall_with_file_urls(p)
+            replace_includes!(inc_ex, dirname(p))
+            return inc_ex
+        else
+            error("Path in expression `$ex` must be a literal string to work with `%include`")
+        end
+    elseif Meta.isexpr(ex, :toplevel)
+        map!(e->replace_includes!(e, parentdir), ex.args, ex.args)
+    elseif Meta.isexpr(ex, :module)
+        map!(e->replace_includes!(e, parentdir), ex.args[3].args, ex.args[3].args)
+    end
+    return ex
+end
+
+# Parse the code in `path` and recursively replace occurances of
+# `include(path)` with the parsed code from that path.
+function parse_and_replace_includes(path)
+    path = abspath(path)
+    ex = replace_includes!(parseall_with_file_urls(path), dirname(path))
+end
+
 # Read and verify header bytes on initializing the connection
 function verify_header(io, ser_version=Serialization.ser_version)
     magic = String(read(io, length(PROTOCOL_MAGIC)))
@@ -257,7 +302,46 @@ function REPL.complete_line(provider::RemoteCompletionProvider,
 end
 
 function run_remote_repl_command(conn, out_stream, cmdstr)
-    ensure_connected!(conn) do
+    # Compute command
+    magic = match_magic_syntax(cmdstr)
+    if isnothing(magic)
+        # Normal remote evaluation
+        ex = parse_input(cmdstr)
+
+        ex = simple_macro_expand!(ex, Symbol("@remote")) do clientside_ex
+            try
+                x = Main.eval(clientside_ex)
+                if x === Base.stdout
+                    # The local stdout cannot be serialized in any sensible way,
+                    # but we store a placeholder for it which will be transformed
+                    # into a serverside approximation of the client stream.
+                    return STDOUT_PLACEHOLDER
+                else
+                    # Any expressions wrapped in `@remote` need to be executed
+                    # on the client and wrapped in a QuoteNode to prevent them
+                    # being eval'd again in the expression on the server side.
+                    QuoteNode(x)
+                end
+            catch _
+                error("Error while evaluating `@remote($clientside_ex)` before passing to the server")
+            end
+        end
+
+        cmd = (:eval, ex)
+    else
+        # Magic prefixes
+        if magic[1] == "?"
+            # Help mode
+            cmd = (:help, magic[2])
+        elseif magic[1] == "%module"
+            mod_ex = Meta.parse(magic[2])
+            cmd = (:in_module, mod_ex)
+        elseif magic[1] == "%include"
+            cmd = (:eval, parse_and_replace_includes(magic[2]))
+        end
+    end
+
+    messageid, value = ensure_connected!(conn) do
         # Set terminal properties for formatting result
         display_props = Dict(
             :displaysize=>displaysize(out_stream),
@@ -267,71 +351,23 @@ function run_remote_repl_command(conn, out_stream, cmdstr)
         # TODO breaking change - send these as part of :eval, perhaps ?
         send_and_receive(conn, (:display_properties, display_props), read_response=false)
 
-        # Send actual command
-        magic = match_magic_syntax(cmdstr)
-        if isnothing(magic)
-            # Normal remote evaluation
-            ex = parse_input(cmdstr)
-
-            ex = simple_macro_expand!(ex, Symbol("@remote")) do clientside_ex
-                try
-                    x = Main.eval(clientside_ex)
-                    if x === Base.stdout
-                        # The local stdout cannot be serialized in any sensible way,
-                        # but we store a placeholder for it which will be transformed
-                        # into a serverside approximation of the client stream.
-                        return STDOUT_PLACEHOLDER
-                    else
-                        # Any expressions wrapped in `@remote` need to be executed
-                        # on the client and wrapped in a QuoteNode to prevent them
-                        # being eval'd again in the expression on the server side.
-                        QuoteNode(x)
-                    end
-                catch _
-                    error("Error while evaluating `@remote($clientside_ex)` before passing to the server")
-                end
-            end
-
-            cmd = (:eval, ex)
-        else
-            # Magic prefixes
-            if magic[1] == "?"
-                # Help mode
-                cmd = (:help, magic[2])
-            elseif magic[1] == "%module"
-                mod_ex = Meta.parse(magic[2])
-                cmd = (:in_module, mod_ex)
-            elseif magic[1] == "%include"
-                path = abspath(magic[2])
-                text = read(path, String)
-                # Some rough heuristics to construct a file URI. This gives us
-                # a place to put the host name.
-                if !startswith(path, '/')
-                    path = '/'*path
-                end
-                if Sys.iswindows()
-                    path = replace(path, '\\'=>'/')
-                end
-                path_uri = "file://$(gethostname())$path"
-                cmd = (:eval, :(Base.include_string(@__MODULE__, $text, $path_uri)))
-            end
-        end
-        messageid, value = send_and_receive(conn, cmd)
-        result_for_display = nothing
-        if messageid in (:in_module, :eval_result, :help_result, :error)
-            if !isnothing(value)
-                if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
-                    result_for_display = Text(value)
-                end
-            end
-            if messageid == :in_module
-                conn.in_module = mod_ex
-            end
-        else
-            @error "Unexpected response from server" messageid
-        end
-        return result_for_display
+        send_and_receive(conn, cmd)
     end
+
+    result_for_display = nothing
+    if messageid in (:in_module, :eval_result, :help_result, :error)
+        if !isnothing(value)
+            if messageid != :eval_result || !REPL.ends_with_semicolon(cmdstr)
+                result_for_display = Text(value)
+            end
+        end
+        if messageid == :in_module
+            conn.in_module = mod_ex
+        end
+    else
+        @error "Unexpected response from server" messageid
+    end
+    return result_for_display
 end
 
 remote_eval_and_fetch(::Nothing, ex) = error("No remote connection is active")
