@@ -181,6 +181,17 @@ try
     path = joinpath(@__DIR__, "to_include.jl")
     @test runcommand("%include $path") == "12345"
     @test runcommand("var_in_included_file") == "12345"
+    subinclude1_url = runcommand("var_in_subinclude1")
+    @test startswith(subinclude1_url, "\"file://$(gethostname())")
+    @test endswith(subinclude1_url, "subincludes/subinclude1.jl\"")
+    subinclude2_url = runcommand("var_in_subinclude2")
+    @test startswith(subinclude2_url, "\"file://$(gethostname())")
+    @test endswith(subinclude2_url, "subincludes/subinclude2.jl\"")
+    subinclude3_url = runcommand("IncludedModule.var_in_subinclude3")
+    @test startswith(subinclude3_url, "\"file://$(gethostname())")
+    @test endswith(subinclude3_url, "subincludes/subinclude3.jl\"")
+
+    @test_throws ErrorException runcommand("%include $(joinpath(@__DIR__, "to_include_bad_path.jl"))")
 
     # Test the @remote macro
     Main.eval(:(clientside_var = 0:41))
