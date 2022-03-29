@@ -107,20 +107,24 @@ end
 #-------------------------------------------------------------------------------
 # Client side connection / session handling
 mutable struct Connection
-    host
-    port
-    tunnel
-    ssh_opts
-    region
-    namespace
-    socket
-    in_module
+    host::Union{AbstractString,Sockets.IPAddr}
+    port::Int
+    tunnel::Symbol
+    ssh_opts::Cmd
+    region::Union{AbstractString,Nothing}
+    namespace::Union{AbstractString,Nothing}
+    socket::Union{IO,Nothing}
+    in_module::Symbol
 end
 
-function Connection(; host=Sockets.localhost, port::Integer=DEFAULT_PORT,
-                    tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
-                    ssh_opts=``, region=nothing, namespace=nothing)
-    conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing, :Main)
+function Connection(; host::Union{AbstractString,Sockets.IPAddr}=Sockets.localhost,
+                    port::Integer=DEFAULT_PORT,
+                    tunnel::Symbol=host!=Sockets.localhost ? :ssh : :none,
+                    ssh_opts::Cmd=``,
+                    region=nothing,
+                    namespace=nothing,
+                    in_module::Symbol=:Main)
+    conn = Connection(host, port, tunnel, ssh_opts, region, namespace, nothing, in_module)
     setup_connection!(conn)
     finalizer(close, conn)
 end
@@ -417,10 +421,10 @@ that `host` needs to be running an ssh server and you need ssh credentials set
 up for use on that host. For secure networks this can be disabled by setting
 `tunnel=:none`.
 
-To provide extra options to SSH, you may use the `ssh_opts` keyword, for
-example an identity file may be set with ```ssh_opts = `-i /path/to/identity.pem` ```.
-Alternatively, you may want to set this up permanently using a `Host` section
-in your ssh config file.
+To provide extra options to SSH, you may pass a `Cmd` object in the `ssh_opts`
+keyword, for example an identity file may be set with ```ssh_opts = `-i
+/path/to/identity.pem` ```. For a more permanent solution, add a `Host` section
+to your ssh config file.
 
 You can also use the following technologies for tunneling in place of SSH:
 1) AWS Session Manager: set `tunnel=:aws`. The optional `region` keyword
@@ -432,8 +436,11 @@ See README.md for more information.
 """
 function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                       tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
-                      ssh_opts=``, region=nothing, namespace=nothing,
-                      startup_text=true, repl=Base.active_repl)
+                      ssh_opts::Cmd=``,
+                      region::Union{AbstractString,Nothing}=nothing,
+                      namespace::Union{AbstractString,Nothing}=nothing,
+                      startup_text::Bool=true,
+                      repl=Base.active_repl)
     global _repl_client_connection
 
     if !isnothing(_repl_client_connection)
