@@ -52,7 +52,7 @@ end
     function fake_conn(host, port; is_open=true)
         io = IOBuffer()
         is_open || close(io)
-        RemoteREPL.Connection(host, port, nothing, nothing, nothing, nothing, io, :Main)
+        RemoteREPL.Connection(host, port, :none, ``, nothing, nothing, io, :Main)
     end
     @test repl_prompt_text(fake_conn(Sockets.localhost, DEFAULT_PORT)) == "julia@localhost> "
     @test repl_prompt_text(fake_conn("localhost",       DEFAULT_PORT)) == "julia@localhost> "
