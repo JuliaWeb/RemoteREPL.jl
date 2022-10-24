@@ -473,6 +473,38 @@ end
 connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
 
 """
+    connect_remote([host=localhost,] port::Integer=$DEFAULT_PORT;
+                 tunnel = (host != localhost) ? :ssh : :none,
+                 ssh_opts = ``)
+
+Connect to remote server without any REPL integrations. This will allow you to use `@remote`, but not the REPL mode.
+Useful in circumstances where no REPL is available, but interactivity is desired like Jupyter or Pluto notebooks.
+Otherwise, see `connece_repl`.
+"""
+function connect_remote(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
+                        tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
+                        ssh_opts::Cmd=``,
+                        region::Union{AbstractString,Nothing}=nothing,
+                        namespace::Union{AbstractString,Nothing}=nothing)
+
+    global _repl_client_connection
+
+    if !isnothing(_repl_client_connection)
+        try
+            close(_repl_client_connection)
+        catch exc
+            @warn "Exception closing connection" exception=(exc,catch_backtrace())
+        end
+    end
+    out_stream = stdout
+    conn = RemoteREPL.Connection(host=host, port=port, tunnel=tunnel,
+                                 ssh_opts=ssh_opts, region=region, namespace=namespace)
+
+    _repl_client_connection = conn
+end                       
+
+
+"""
     @remote ex
 
 Execute expression `ex` on the other side of the current RemoteREPL connection
