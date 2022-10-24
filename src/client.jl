@@ -11,7 +11,7 @@ function Base.showerror(io::IO, e::RemoteException)
     # Here, we presume that e.msg is fully formatted.
     indented_msg = join("  " .* split(e.msg, '\n'), '\n')
     print(io, "RemoteException:\n", indented_msg)
-endPatch 1
+end
 
 # Super dumb macro expander which expands calls to only a single macro
 # `macro_name` which is implemented as `func` taking the expressions passed to
