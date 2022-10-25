@@ -467,7 +467,7 @@ connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
 
 Connect to remote server without any REPL integrations. This will allow you to use `@remote`, but not the REPL mode.
 Useful in circumstances where no REPL is available, but interactivity is desired like Jupyter or Pluto notebooks.
-Otherwise, see `connece_repl`.
+Otherwise, see `connect_repl`.
 """
 function connect_remote(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                         tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
