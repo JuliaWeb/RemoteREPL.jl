@@ -23,6 +23,13 @@ julia@localhost> x = 123
 123
 ```
 
+Or in environments without any REPL integrations like Jupyter or Pluto notebooks. You can use
+
+```julia
+connect_remote();
+```
+will allow you to use `@remote` without REPL mode. 
+
 Back in the REPL of process A you'll now see that a client has connected, and
 the variable `x` has been set in the `Main` module:
 
