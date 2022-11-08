@@ -1,6 +1,6 @@
 module RemoteREPL
 
-export connect_repl, serve_repl, @remote
+export connect_repl, serve_repl, @remote, connect_remote
 
 const DEFAULT_PORT = 27754
 const PROTOCOL_MAGIC = "RemoteREPL"

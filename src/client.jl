@@ -441,18 +441,8 @@ function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                       namespace::Union{AbstractString,Nothing}=nothing,
                       startup_text::Bool=true,
                       repl=Base.active_repl)
-    global _repl_client_connection
 
-    if !isnothing(_repl_client_connection)
-        try
-            close(_repl_client_connection)
-        catch exc
-            @warn "Exception closing connection" exception=(exc,catch_backtrace())
-        end
-    end
-
-    conn = Connection(host=host, port=port, tunnel=tunnel,
-                      ssh_opts=ssh_opts, region=region, namespace=namespace)
+    conn = connect_remote(host, port; tunnel, ssh_opts, region,namespace)
     out_stream = stdout
     prompt = ReplMaker.initrepl(c->run_remote_repl_command(conn, out_stream, c),
                        repl         = Base.active_repl,
@@ -465,12 +455,42 @@ function connect_repl(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
                        completion_provider = RemoteCompletionProvider(conn),
                        startup_text = startup_text
                        )
-    # Record the connection which is attached to the REPL
-    _repl_client_connection = conn
     prompt
 end
 
 connect_repl(port::Integer) = connect_repl(Sockets.localhost, port)
+
+"""
+    connect_remote([host=localhost,] port::Integer=$DEFAULT_PORT;
+                 tunnel = (host != localhost) ? :ssh : :none,
+                 ssh_opts = ``)
+
+Connect to remote server without any REPL integrations. This will allow you to use `@remote`, but not the REPL mode.
+Useful in circumstances where no REPL is available, but interactivity is desired like Jupyter or Pluto notebooks.
+Otherwise, see `connect_repl`.
+"""
+function connect_remote(host=Sockets.localhost, port::Integer=DEFAULT_PORT;
+                        tunnel::Symbol = host!=Sockets.localhost ? :ssh : :none,
+                        ssh_opts::Cmd=``,
+                        region::Union{AbstractString,Nothing}=nothing,
+                        namespace::Union{AbstractString,Nothing}=nothing)
+
+    global _repl_client_connection
+
+    if !isnothing(_repl_client_connection)
+        try
+            close(_repl_client_connection)
+        catch exc
+            @warn "Exception closing connection" exception=(exc,catch_backtrace())
+        end
+    end
+    conn = RemoteREPL.Connection(host=host, port=port, tunnel=tunnel,
+                                 ssh_opts=ssh_opts, region=region, namespace=namespace)
+
+    # Record the connection in a global variable so it's accessible to REPL and `@remote`
+    _repl_client_connection = conn
+end                       
+
 
 """
     @remote ex

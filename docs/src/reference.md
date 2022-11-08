@@ -39,6 +39,7 @@ disconnect from the server, leaving the remote operation still running.
 ```@docs
 connect_repl
 serve_repl
+connect_remote
 RemoteREPL.@remote
 RemoteREPL.remote_eval
 ```
