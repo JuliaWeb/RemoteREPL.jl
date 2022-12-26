@@ -121,9 +121,9 @@ If [kubectl](https://kubernetes.io/docs/reference/kubectl/overview/) is configur
 
 ## Use in Jupyter or Pluto
 
-In environments without any REPL integrations like Jupyter or Pluto notebooks. You can use
+In environments without any REPL integrations like Jupyter or Pluto notebooks you can use
 
 ```julia
 connect_remote();
 ```
-will allow you to use `@remote` without REPL mode. 
+which will allow you to use `@remote` without the REPL mode.
