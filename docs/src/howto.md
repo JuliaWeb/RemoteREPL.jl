@@ -119,3 +119,11 @@ Setup your AWS CLI by running `aws configure` on the command line. You can then 
 
 If [kubectl](https://kubernetes.io/docs/reference/kubectl/overview/) is configured on your local system, you can use that to connect to RemoteREPL servers on your Kubernetes cluster. Run the following snippet: `connect_repl("your-pod-name"; tunnel=:k8s, namespace="your-namespace")`. The `namespace` argument is only required if the Pod is not in the default Kubernetes namespace.
 
+## Use in Jupyter or Pluto
+
+In environments without any REPL integrations like Jupyter or Pluto notebooks you can use
+
+```julia
+connect_remote();
+```
+which will allow you to use `@remote` without the REPL mode.
