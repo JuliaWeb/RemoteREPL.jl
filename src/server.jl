@@ -8,6 +8,18 @@ mutable struct ServerSideSession
     display_properties::Dict
     in_module::Module
 end
+function setmodule!(sss::ServerSideSession, mod::Module)
+    sss.in_module = mod
+end
+
+function putmodule!(mod::Module)
+    # empty channel
+    while isready(NEWMODULE_CHANNEL)
+        take!(NEWMODULE_CHANNEL)
+    end
+    # put new module
+    put!(NEWMODULE_CHANNEL, mod)
+end
 
 Base.isopen(session::ServerSideSession) = isopen(session.socket)
 Base.close(session::ServerSideSession)  = close(session.socket)
@@ -102,6 +114,7 @@ function evaluate_requests(session, request_chan, response_chan)
         try
             request = take!(request_chan)
             result = eval_message(session, request...)
+            isready(NEWMODULE_CHANNEL) && setmodule!(session, take!(NEWMODULE_CHANNEL))
             if !isnothing(result)
                 put!(response_chan, result)
             end
@@ -285,4 +298,3 @@ function serve_repl(server::Base.IOServer; on_client_connect=nothing)
         end
     end
 end
-
