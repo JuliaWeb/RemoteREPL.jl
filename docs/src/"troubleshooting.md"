@@ -4,8 +4,7 @@ By "local REPL" a REPL running on the same computer as the host is meant. By "re
 
 ### IOError: connect: connection refused (ECONNREFUSED)
 This error has been encountered when
-1) Running `connect_repl()`, while attempting to connect to a local REPL. The problem was that no local REPL had previously run `serve_repl()`. To fix this, run `serve_repl()` in the local REPL.
-2) Running `connect_remote()`, while attempting to connect to a local REPL. The problem was that no local REPL had previously run `serve_repl()`. To fix this, run `serve_repl()` in the local REPL.
+1) Running `connect_repl()` or `connect_remote()`, while attempting to connect to a local REPL. The problem was that no local REPL had previously run `serve_repl()`. To fix this, run `serve_repl()` in the local REPL.
 3) Running `connect_remote()`, while attempting to connect to a remote REPL. The problem was that no address was provided. To fix this, pass an adress as a string to `connect_remote`, as in `connect_remote("pi@192.168.4.2")`
 
 ### RemoteREPL stream was closed while reading header
