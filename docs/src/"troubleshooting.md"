@@ -19,6 +19,6 @@ The requirements translates to that "the config file must be owned by root or by
 (Quoted from [this](https://superuser.com/questions/1212402/bad-owner-or-permissions-on-ssh-config-file) thread). The fix is therefore to remove write premissions for 
 any group or other users. On a linux system, this is acomplished by running the following code.
 ```
-chmod go-w /home/username/.ssh/config
+chmod go-w /home/username/.ssh/*
 ```
 If you are using a different operating system, please google how to remove write premissions on files, and try to do the same thing.
