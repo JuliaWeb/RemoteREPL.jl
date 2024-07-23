@@ -114,7 +114,7 @@ end
 
 # Use non-default port to avoid clashes with concurrent interactive use or testing.
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
-server_proc = run(`$(Base.julia_cmd()) --project -e "using TestEnv; TestEnv.activate(); using RemoteREPL, Sockets, UUIDs ; serve_repl($test_port)"`, wait=false)
+server_proc = run(`$(Base.julia_cmd()) --project -e "using RemoteREPL, Sockets, UUIDs ; serve_repl($test_port)"`, wait=false)
 
 try
 
@@ -302,7 +302,7 @@ end
 
 
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
-server_proc = run(```$(Base.julia_cmd()) --project -e "using TestEnv; TestEnv.activate(); using RemoteREPL, Sockets, UUIDs ; module EvalInMod ; end;
+server_proc = run(```$(Base.julia_cmd()) --project -e "using RemoteREPL, Sockets, UUIDs ; module EvalInMod ; end;
                   serve_repl($test_port, on_client_connect=sess->sess.in_module=EvalInMod)"```, wait=false)
 try
 
@@ -328,3 +328,5 @@ end
 finally
     kill(server_proc)
 end
+
+nothing
