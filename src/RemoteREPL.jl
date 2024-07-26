@@ -9,7 +9,7 @@ export connect_repl, serve_repl, @remote, connect_remote, remotecmd, remote_modu
 
 const DEFAULT_PORT = 27754
 const PROTOCOL_MAGIC = "RemoteREPL"
-const PROTOCOL_VERSION = UInt32(1)
+const PROTOCOL_VERSION = UInt32(2)
 
 const STDOUT_PLACEHOLDER = Symbol("#RemoteREPL_STDOUT_PLACEHOLDER")
 

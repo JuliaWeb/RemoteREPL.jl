@@ -139,10 +139,10 @@ function setup_connection!(conn::Connection)
             namespace=conn.namespace)
     end
     Sockets.nagle(socket, false)  # Disables nagles algorithm. Appropriate for interactive connections.
-    # transmit session id
-    serialize(socket, conn.session_id)
     try
         verify_header(socket)
+        # transmit session id
+        serialize(socket, conn.session_id)
     catch exc
         close(socket)
         rethrow()

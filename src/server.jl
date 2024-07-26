@@ -177,7 +177,6 @@ end
 
 # Serve a remote REPL session to a single client
 function serve_repl_session(session, socket)
-    send_header(socket)
     @sync begin
         request_chan = Channel(1)
         response_chan = Channel(1)
@@ -252,6 +251,8 @@ function serve_repl(server::Base.IOServer; on_client_connect=nothing)
         while isopen(server)
             socket = accept(server)
 
+            # send magic
+            send_header(socket)
             # expect session id
             session_id = deserialize(socket)
             session = lock(session_lock) do
