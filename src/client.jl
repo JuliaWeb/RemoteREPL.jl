@@ -455,8 +455,9 @@ _repl_client_connection = nothing
 
 """
     connect_repl([host=localhost,] port::Integer=$DEFAULT_PORT;
-                 use_ssh_tunnel = (host != localhost) ? :ssh : :none,
-                 ssh_opts = ``, repl=Base.active_repl, session_id = nothing)
+                 tunnel = (host != localhost) ? :ssh : :none,
+                 ssh_opts = ``, region=nothing, namespace=nothing,
+                 repl=Base.active_repl, session_id = nothing)
 
 Connect client REPL to a remote `host` on `port`. This is then accessible as a
 remote sub-repl of the current Julia session.
