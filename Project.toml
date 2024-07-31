@@ -1,6 +1,6 @@
 name = "RemoteREPL"
 uuid = "1bd9f7bb-701c-4338-bec7-ac987af7c555"
-authors = ["Chris Foster <chris42f@gmail.com> and contributors"]
+authors = ["Claire Foster <aka.c42f@gmail.com> and contributors"]
 version = "0.2.17"
 
 [deps]
