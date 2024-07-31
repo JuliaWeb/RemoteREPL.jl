@@ -68,9 +68,9 @@ function wait_conn(host, port, use_ssh; max_tries=4, session_id=nothing)
     for i=1:max_tries
         try
             return RemoteREPL.Connection(host=host, port=port,
-                                        tunnel=use_ssh ? :ssh : :none,
-                                        ssh_opts=`-o StrictHostKeyChecking=no`,
-                                        session_id=session_id)
+                                         tunnel=use_ssh ? :ssh : :none,
+                                         ssh_opts=`-o StrictHostKeyChecking=no`,
+                                         session_id=session_id)
         catch exc
             if i == max_tries
                 rethrow()
@@ -112,9 +112,11 @@ if !use_ssh
 end
 @info use_ssh ? "Running tests with SSH tunnel" : "Testing without SSH tunnel - localhost only"
 
+let
 # Use non-default port to avoid clashes with concurrent interactive use or testing.
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
 server_proc = run(`$(Base.julia_cmd()) --project -e "using RemoteREPL, Sockets, UUIDs ; serve_repl($test_port)"`, wait=false)
+conn = nothing
 
 try
 
@@ -297,18 +299,23 @@ try
 end
 
 finally
+    !isnothing(conn) && close(conn)
     kill(server_proc)
 end
+end
 
-
+let
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
 server_proc = run(```$(Base.julia_cmd()) --project -e "using RemoteREPL, Sockets, UUIDs ; module EvalInMod ; end;
                   serve_repl($test_port, on_client_connect=sess->sess.in_module=EvalInMod)"```, wait=false)
+conn = nothing
+conn2 = nothing
+conn3 = nothing
+
 try
 
 @testset "on_client_connect" begin
     conn = wait_conn(test_interface, test_port, use_ssh)
-
     runcommand(cmdstr) = runcommand_unwrap(conn, cmdstr)
 
     @test runcommand("@__MODULE__") == "Main.EvalInMod"
@@ -326,7 +333,11 @@ try
 end
 
 finally
+    !isnothing(conn) && close(conn)
+    !isnothing(conn2) && close(conn2)
+    !isnothing(conn3) && close(conn3)
     kill(server_proc)
+end
 end
 
 nothing
