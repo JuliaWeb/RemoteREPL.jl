@@ -112,10 +112,12 @@ if !use_ssh
 end
 @info use_ssh ? "Running tests with SSH tunnel" : "Testing without SSH tunnel - localhost only"
 
+test_project = Base.active_project()
+
 let
 # Use non-default port to avoid clashes with concurrent interactive use or testing.
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
-server_proc = run(`$(Base.julia_cmd()) --project -e "using RemoteREPL, Sockets, UUIDs ; serve_repl($test_port)"`, wait=false)
+server_proc = run(`$(Base.julia_cmd()) --project=$test_project -e "using RemoteREPL, Sockets, UUIDs ; serve_repl($test_port)"`, wait=false)
 conn = nothing
 
 try
@@ -306,7 +308,7 @@ end
 
 let
 test_port = RemoteREPL.find_free_port(Sockets.localhost)
-server_proc = run(```$(Base.julia_cmd()) --project -e "using RemoteREPL, Sockets, UUIDs ; module EvalInMod ; end;
+server_proc = run(```$(Base.julia_cmd()) --project=$test_project -e "using RemoteREPL, Sockets, UUIDs ; module EvalInMod ; end;
                   serve_repl($test_port, on_client_connect=sess->sess.in_module=EvalInMod)"```, wait=false)
 conn = nothing
 conn2 = nothing
