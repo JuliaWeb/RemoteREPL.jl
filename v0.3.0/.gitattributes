@@ -1,0 +1,2 @@
+# Treat all data files as binary
+data/** binary
