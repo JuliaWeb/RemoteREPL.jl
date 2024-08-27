@@ -197,6 +197,7 @@ Since the session's module is being regularly updated by the Pluto notebook, you
 
 ## Troubleshooting connection issues 
 Sometimes errors will be encountered. This section aims to show some errors experienced by users, and what the underlying problem was. We will use some terms in this section, introduced in the table below.
+
 |Term|Explanation|
 |---|---|
 |"local REPL"|a REPL running on the same computer as the host. This could mean connecting two julia instances running on the same computer.|
