@@ -154,7 +154,7 @@ In order to closely track the newest notebook state, you will need to tap into t
 You could write the following code in the pluto notebook that updates the module every second (if you have a better event-driven update solution, please raise an issue!).
 
 ```julia
-using PlutoLinks, PlutoHooks
+using PlutoLinks
 
 using RemoteREPL, Sockets, UUIDs
 
@@ -166,21 +166,18 @@ session_id = UUID("f03aec15-3e14-4d58-bcfa-82f8d33c9f9a")
 
 con2server = connect_remote(Sockets.localhost, 27765; session_id=session_id)
 
-takemodulesymbol() = Symbol("workspace#" ,PlutoRunner.moduleworkspace_count[])
-
-let # update module in RemoteREPL every 1 sec
-	count, set_count = @use_state(1)
-	@use_task([]) do
-		new_count = count
-		while true
-			sleep(1.0)
-			new_count += 1
-			set_count(new_count) # (this will trigger a re-run)
-		end
-	end
-	mod = eval(takemodulesymbol())
-	#@eval(@remoterepl $"%module $mod")
-	remote_module!(mod)
+# update module in RemoteREPL when it changes in Pluto
+@use_task([]) do
+   mod = :nothing_yet
+   while true
+      newval = Symbol("workspace#", Main.PlutoRunner.moduleworkspace_count[])
+      if newval != mod
+         mod = newval
+         remote_module!(Core.eval(Main, mod))
+      end
+      
+      sleep(0.05)
+   end
 end
 ```
 
