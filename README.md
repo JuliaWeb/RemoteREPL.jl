@@ -1,7 +1,7 @@
 # RemoteREPL
 
 ![Version](https://juliahub.com/docs/RemoteREPL/version.svg)
-[![docs latest](https://img.shields.io/badge/docs-latest-blue.svg)](https://juliahub.com/docs/RemoteREPL)
+[![docs latest](https://img.shields.io/badge/docs-latest-blue.svg)](https://JuliaWeb.github.io/RemoteREPL.jl/dev)
 
 `RemoteREPL` allows you to connect your local julia REPL to a separate Julia
 process and run commands interactively:
