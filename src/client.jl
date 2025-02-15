@@ -278,7 +278,8 @@ function path_str(path_completion)
 end
 
 function REPL.complete_line(provider::RemoteCompletionProvider,
-                            state::REPL.LineEdit.PromptState)::
+                            state::REPL.LineEdit.PromptState;
+                            hint::Bool=false)::
                             Tuple{Vector{String},String,Bool}
     # See REPL.jl complete_line(c::REPLCompletionProvider, s::PromptState)
     partial = REPL.beforecursor(state.input_buffer)
