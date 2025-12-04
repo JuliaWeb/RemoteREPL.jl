@@ -10,5 +10,5 @@ process and run commands interactively:
 
 ## Demo
 
-[![asciicast](https://asciinema.org/a/670195.svg)](https://asciinema.org/a/670195.svg)
+[![asciicast](https://asciinema.org/a/670195.svg)](https://asciinema.org/a/670195)
 
