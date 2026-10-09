@@ -64,6 +64,32 @@ end
     @test repl_prompt_text(fake_conn("ABC", DEFAULT_PORT, is_open=false)) == "julia@ABC [disconnected]> "
 end
 
+@testset "SSH tunnel command" begin
+    cmd = RemoteREPL.ssh_tunnel_cmd("ssh", "remote", 27754, ip"127.0.0.1", 43210;
+                                    ssh_opts=`-o BatchMode=yes`)
+    @test cmd == `ssh -o BatchMode=yes -o ExitOnForwardFailure=yes
+                       -o ServerAliveInterval=60 -N
+                       -L 127.0.0.1:43210:localhost:27754 remote`
+
+    @static if Sys.isapple()
+        @test RemoteREPL.with_ssh_executable(identity) == "/usr/bin/ssh"
+
+        mktemp() do config_path, config
+            write(config, """
+                Host *
+                    UseKeychain yes
+                    AddKeysToAgent yes
+                """)
+            close(config)
+
+            ssh_cmd = RemoteREPL.with_ssh_executable() do ssh_exe
+                `$ssh_exe -F $config_path -G remote`
+            end
+            @test success(pipeline(ssh_cmd, stdout=devnull, stderr=devnull))
+        end
+    end
+end
+
 function wait_conn(host, port, use_ssh; max_tries=4, session_id=nothing)
     for i=1:max_tries
         try

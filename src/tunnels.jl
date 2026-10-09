@@ -32,14 +32,29 @@ function comm_pipeline(cmd::Cmd)
     proc
 end
 
+function with_ssh_executable(f)
+    @static if Sys.isapple()
+        # Apple's SSH client supports macOS-specific configuration and Keychain
+        # integration which are not present in upstream portable OpenSSH.
+        f("/usr/bin/ssh")
+    else
+        OpenSSH_jll.ssh(f)
+    end
+end
+
+function ssh_tunnel_cmd(ssh_exe, host, port, tunnel_interface, tunnel_port; ssh_opts=``)
+    # Tunnel binds locally to $tunnel_interface:$tunnel_port
+    # The other end jumps through $host using the provided identity,
+    # and forwards the data to $port on *itself* (this is the localhost:$port
+    # part - "localhost" being resolved relative to $host)
+    `$ssh_exe $ssh_opts -o ExitOnForwardFailure=yes -o ServerAliveInterval=60
+              -N -L $tunnel_interface:$tunnel_port:localhost:$port $host`
+end
+
 function ssh_tunnel(host, port, tunnel_interface, tunnel_port; ssh_opts=``)
-    OpenSSH_jll.ssh() do ssh_exe
-        # Tunnel binds locally to $tunnel_interface:$tunnel_port
-        # The other end jumps through $host using the provided identity,
-        # and forwards the data to $port on *itself* (this is the localhost:$port
-        # part - "localhost" being resolved relative to $host)
-        ssh_cmd = `$ssh_exe $ssh_opts -o ExitOnForwardFailure=yes -o ServerAliveInterval=60
-                            -N -L $tunnel_interface:$tunnel_port:localhost:$port $host`
+    with_ssh_executable() do ssh_exe
+        ssh_cmd = ssh_tunnel_cmd(ssh_exe, host, port, tunnel_interface, tunnel_port;
+                                 ssh_opts=ssh_opts)
         @debug "Connecting SSH tunnel to remote address $host via ssh tunnel to $port" ssh_cmd
         comm_pipeline(ssh_cmd)
     end
@@ -88,5 +103,4 @@ function connect_via_tunnel(host, port; retry_timeout,
         end
     end
 end
-
 
